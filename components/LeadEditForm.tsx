@@ -5,7 +5,7 @@ import { updateLead, type FormState } from "@/app/dashboard/actions";
 import type { Lead } from "@/lib/leads";
 
 const input =
-  "mt-1 w-full rounded-lg border border-[#D8E0DA] bg-white px-3 py-2 text-base focus-visible:outline-2 focus-visible:outline-[#1F7A5C]";
+  "mt-1 w-full rounded-lg border border-[#D8E0DA] bg-white px-3 py-1.5 text-base focus-visible:outline-2 focus-visible:outline-[#1F7A5C]";
 
 export function LeadEditForm({ lead }: { lead: Lead }) {
   const [state, action, pending] = useActionState<FormState, FormData>(
@@ -14,7 +14,7 @@ export function LeadEditForm({ lead }: { lead: Lead }) {
   );
 
   return (
-    <form action={action} className="space-y-4">
+    <form action={action} className="space-y-3">
       <label className="block text-sm font-medium">
         Customer name
         <input name="name" defaultValue={lead.name ?? ""} className={input} />

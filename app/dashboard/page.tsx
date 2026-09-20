@@ -1,6 +1,7 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ChaseItem } from "@/components/ChaseItem";
 import { LeadCard } from "@/components/LeadCard";
+import { NeedsYouCard } from "@/components/NeedsYouCard";
 import { Shell, displayFont } from "@/components/Shell";
 import { SubmitButton } from "@/components/SubmitButton";
 import { signOut } from "@/app/login/actions";
@@ -13,9 +14,7 @@ import {
   daysSince,
   isCold,
   lastTouch,
-  owesReply,
   rm,
-  type Draft,
   type LastMessage,
   type Lead,
 } from "@/lib/leads";
@@ -29,7 +28,7 @@ export default async function Dashboard() {
 
   const { data: business } = await supabase
     .from("businesses")
-    .select("id, name, cold_after_days")
+    .select("id, name, cold_after_days, auto_reply")
     .eq("owner_id", user.id)
     .maybeSingle();
 
@@ -55,29 +54,21 @@ export default async function Dashboard() {
     .eq("business_id", business.id)
     .order("last_message_at", { ascending: false, nullsFirst: false });
 
-  const { data: draftRows } = await supabase
-    .from("drafts")
-    .select("id, lead_id, body, created_at")
-    .eq("business_id", business.id)
-    .eq("status", "pending")
-    .order("created_at", { ascending: false });
-
   const leads = (leadRows ?? []) as unknown as Lead[];
-  const drafts = (draftRows ?? []) as Draft[];
+  // Chats the assistant handed to you. Everything else, the assistant handles alone.
+  const needsYou = leads
+    .filter((l) => l.pending_decision)
+    .sort((a, b) => (daysSince(lastTouch(b)) ?? 0) - (daysSince(lastTouch(a)) ?? 0));
+  const needsIds = new Set(needsYou.map((l) => l.id));
+  const coldIds = new Set(leads.filter((l) => isCold(l, business.cold_after_days)).map((l) => l.id));
 
-  const draftByLead = new Map<string, Draft>();
-  for (const d of drafts) if (!draftByLead.has(d.lead_id)) draftByLead.set(d.lead_id, d);
-
-  const coldLeads = leads.filter((l) => isCold(l, business.cold_after_days));
-  const coldIds = new Set(coldLeads.map((l) => l.id));
-
-  // The last thing said in each cold chat, so you remember where it stopped.
+  // The last thing said in each of those chats, so you remember where it stopped.
   const lastByLead = new Map<string, LastMessage>();
-  if (coldLeads.length > 0) {
+  if (needsYou.length > 0) {
     const { data: msgRows } = await supabase
       .from("messages")
       .select("lead_id, direction, body, sent_at")
-      .in("lead_id", [...coldIds])
+      .in("lead_id", [...needsIds])
       .order("sent_at", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(500);
@@ -86,18 +77,7 @@ export default async function Dashboard() {
     }
   }
 
-  // Customers waiting on you come first, then the nearest deadline, then the longest quiet.
-  const cold = [...coldLeads].sort((a, b) => {
-    const oa = owesReply(a, lastByLead.get(a.id)) ? 0 : 1;
-    const ob = owesReply(b, lastByLead.get(b.id)) ? 0 : 1;
-    if (oa !== ob) return oa - ob;
-    const da = a.deadline ?? "9999-12-31";
-    const db = b.deadline ?? "9999-12-31";
-    if (da !== db) return da < db ? -1 : 1;
-    return (daysSince(lastTouch(b)) ?? 0) - (daysSince(lastTouch(a)) ?? 0);
-  });
-
-  const waiting = cold.reduce((sum, l) => sum + (l.quoted_price_myr ?? 0), 0);
+  const waiting = needsYou.reduce((sum, l) => sum + (l.quoted_price_myr ?? 0), 0);
 
   return (
     <Shell>
@@ -109,38 +89,43 @@ export default async function Dashboard() {
               className="mt-1 text-3xl font-bold leading-tight tracking-tight sm:text-4xl"
               style={displayFont}
             >
-              {cold.length === 0
-                ? "Nobody to chase today"
-                : `${cold.length} ${cold.length === 1 ? "lead" : "leads"} to chase today`}
+              {needsYou.length === 0
+                ? "Nothing needs you right now"
+                : `${needsYou.length} ${needsYou.length === 1 ? "chat needs" : "chats need"} you`}
             </h1>
             {waiting > 0 && (
               <p className="mt-2 text-lg text-[#55645E]">
-                {rm(waiting)} in quotes on these leads
+                {rm(waiting)} in orders waiting on you
               </p>
             )}
           </div>
-          <form action={signOut}>
-            <SubmitButton pendingText="Signing out...">Sign out</SubmitButton>
-          </form>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/dashboard/settings"
+              className="rounded-full border border-[#D8E0DA] bg-white px-4 py-2 text-sm font-medium hover:border-[#1F7A5C] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1F7A5C]"
+            >
+              Assistant: {business.auto_reply ? "on" : "off"}
+            </Link>
+            <form action={signOut}>
+              <SubmitButton pendingText="Signing out...">Sign out</SubmitButton>
+            </form>
+          </div>
         </header>
 
-        <section className="mt-8" aria-labelledby="chase">
-          <h2 id="chase" className="sr-only">
-            Leads to chase
+        <section className="mt-8" aria-labelledby="needs-you">
+          <h2 id="needs-you" className="sr-only">
+            Chats that need you
           </h2>
-          {cold.length === 0 ? (
+          {needsYou.length === 0 ? (
             <p className="max-w-prose text-[#55645E]">
-              A lead shows up here after {business.cold_after_days} days without a message.
+              {business.auto_reply
+                ? "The assistant is handling your chats. Anything it cannot decide alone shows up here."
+                : "The assistant is off, so nothing is answered automatically. Turn it on in Settings."}
             </p>
           ) : (
             <ul className="space-y-3">
-              {cold.map((lead) => (
-                <ChaseItem
-                  key={lead.id}
-                  lead={lead}
-                  draft={draftByLead.get(lead.id)}
-                  last={lastByLead.get(lead.id)}
-                />
+              {needsYou.map((lead) => (
+                <NeedsYouCard key={lead.id} lead={lead} last={lastByLead.get(lead.id)} />
               ))}
             </ul>
           )}

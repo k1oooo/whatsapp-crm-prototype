@@ -2,7 +2,7 @@
 
 ## 1. Supabase (free tier)
 1. supabase.com > organization "Vici" > New project (Singapore region).
-2. SQL Editor > run `supabase/migrations/0001_init.sql`, then `0002_quote_and_locks.sql`. Run each file once, in order. If you see "already exists", that file was already run, so skip it.
+2. SQL Editor > run `supabase/migrations/0001_init.sql`, then `0002_quote_and_locks.sql`, then `0003_pending_decision.sql`, then `0004_auto_reply.sql`, then `0005_handoff_note.sql`, then `0006_order_flow.sql`. Run each file once, in order. If you see "already exists", that file was already run, so skip it.
 3. Authentication > Users > Add user (your email + a password). Copy the user id.
 4. Insert your business row:
 
@@ -31,12 +31,20 @@ node --env-file=.env.local scripts/simulate-webhook.mjs "Hi kak, nak order kek b
 node --env-file=.env.local scripts/simulate-webhook.mjs "Boleh kak! 2 tier RM220 ya, cukup untuk 20 orang" out
 node --env-file=.env.local scripts/simulate-webhook.mjs "Okay nanti saya confirm" in
 ```
-To make the lead show under "Leads to chase", back-date it (SQL Editor):
+The lead appears on the board. With the assistant on, it answers the customer itself. Chats it cannot decide alone (a discount, a payment to check, something it is not sure about) show at the top of the dashboard as "needs you".
 
-```sql
-update leads set last_message_at = now() - interval '4 days'
-where wa_contact_number = '60123456789';
+## 5. Automatic replies (test mode)
+1. Dashboard > "Assistant: off" > tick "Answer customers automatically" and fill in "What the assistant may say" (prices, delivery, hours, how to pay). Put your bank details in the separate "Payment details" box (not in the facts). Save.
+2. Send customer messages with the simulator. The assistant answers, or hands the chat to you for a discount, stock or availability, a payment, or anything it is not sure about. Handed-over chats show "Needs you" at the top of the dashboard.
+3. Replies are saved in the conversation but NOT sent to WhatsApp until you set `WHATSAPP_SEND_MODE=live` and `WHATSAPP_ACCESS_TOKEN`.
+4. Without an AI key it runs a simple keyword stand-in, which is enough to test the flow.
+
+Try these (same customer number):
+```bash
+node --env-file=.env.local scripts/simulate-webhook.mjs "Hi, ada cupcake tak?" in
+node --env-file=.env.local scripts/simulate-webhook.mjs "Boleh kurang sikit tak?" in
+node --env-file=.env.local scripts/simulate-webhook.mjs "" image
 ```
 
-## 5. Connect real WhatsApp later
+## 6. Connect real WhatsApp later
 Meta developer app > WhatsApp > callback URL `https://YOUR-URL/api/whatsapp/webhook`, verify token = `WHATSAPP_VERIFY_TOKEN`, subscribe to `messages` (and `smb_message_echoes` for coexistence numbers). Put the real app secret in `WHATSAPP_APP_SECRET` and the real phone number id in your business row.

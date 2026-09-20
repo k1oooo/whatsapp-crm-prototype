@@ -1,5 +1,6 @@
 // Sends a signed fake WhatsApp webhook to your local server, so you can test for free.
-// Usage: node --env-file=.env.local scripts/simulate-webhook.mjs "Hi kak, ada buat kek?" [in|out]
+// Usage: node --env-file=.env.local scripts/simulate-webhook.mjs "Hi kak, ada buat kek?" [in|out|image]
+// "image" sends a photo with no text, like a payment receipt.
 import crypto from "node:crypto";
 
 const text = process.argv[2] ?? "Hi kak, ada buat kek birthday tak?";
@@ -18,7 +19,14 @@ const ts = String(Math.floor(Date.now() / 1000));
 const id = `wamid.SIM${crypto.randomUUID()}`;
 
 const value =
-  direction === "in"
+  direction === "image"
+    ? {
+        messaging_product: "whatsapp",
+        metadata: { phone_number_id: phoneNumberId },
+        contacts: [{ wa_id: customer, profile: { name: "Test Customer" } }],
+        messages: [{ from: customer, id, timestamp: ts, type: "image", image: { id: "SIM_IMAGE" } }],
+      }
+    : direction === "in"
     ? {
         messaging_product: "whatsapp",
         metadata: { phone_number_id: phoneNumberId },
@@ -38,7 +46,7 @@ const body = JSON.stringify({
   entry: [
     {
       id: "SIM_WABA",
-      changes: [{ field: direction === "in" ? "messages" : "smb_message_echoes", value }],
+      changes: [{ field: direction === "out" ? "smb_message_echoes" : "messages", value }],
     },
   ],
 });

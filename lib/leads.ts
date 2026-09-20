@@ -33,7 +33,27 @@ export interface Lead {
   last_message_at: string | null;
   last_chased_at: string | null;
   locked_fields: string[];
+  pending_decision: boolean;
+  human_reason: string | null;
+  handoff_note: string | null;
+  order_status: string | null;
+  order_summary: string | null;
 }
+
+export const ORDER_LABEL: Record<string, string> = {
+  collecting: "Taking the order",
+  awaiting_confirmation: "Waiting for the customer to confirm",
+  confirmed: "Confirmed, waiting for payment",
+  paid: "Paid",
+};
+
+// Why the assistant handed a chat to the owner.
+export const REASON_LABEL: Record<string, string> = {
+  discount: "asked for a discount",
+  stock: "asked about stock or availability",
+  payment: "payment to check",
+  unsure: "the assistant was not sure",
+};
 
 export interface Draft {
   id: string;
@@ -50,7 +70,7 @@ export interface LastMessage {
 }
 
 export const LEAD_COLUMNS =
-  "id, wa_contact_number, name, need, budget_myr, quoted_price_myr, deadline, stage, language, last_message_at, last_chased_at, locked_fields";
+  "id, wa_contact_number, name, need, budget_myr, quoted_price_myr, deadline, stage, language, last_message_at, last_chased_at, locked_fields, pending_decision, human_reason, handoff_note, order_status, order_summary";
 
 const DAY = 86_400_000;
 

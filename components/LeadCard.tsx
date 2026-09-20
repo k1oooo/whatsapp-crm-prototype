@@ -4,6 +4,7 @@ import {
   daysSince,
   displayName,
   formatDeadline,
+  ORDER_LABEL,
   relativeDays,
   rm,
   type Lead,
@@ -48,6 +49,12 @@ export function LeadCard({ lead, cold }: { lead: Lead; cold: boolean }) {
           .filter(Boolean)
           .join(", ")}
       </p>
+      {lead.order_summary && lead.order_status && lead.order_status !== "collecting" && (
+        <p className="mt-2 rounded-md bg-[#EAF3EC] px-2 py-1 text-xs text-[#12251F]">
+          <span className="font-semibold">{ORDER_LABEL[lead.order_status] ?? lead.order_status}:</span>{" "}
+          {lead.order_summary}
+        </p>
+      )}
       {activity && <p className="mt-1 text-xs text-[#55645E]">{activity}</p>}
 
       <div className="mt-2">
