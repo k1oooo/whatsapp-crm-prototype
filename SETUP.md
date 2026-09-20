@@ -20,7 +20,7 @@ values ('YOUR-USER-ID', 'Test Bakery', 'TEST_PHONE_NUMBER_ID', '60123456789');
 
 ## 3. Run
 ```bash
-npm i @supabase/supabase-js @supabase/ssr @anthropic-ai/sdk
+npm i @supabase/supabase-js @supabase/ssr @anthropic-ai/sdk lucide-react class-variance-authority clsx tailwind-merge sonner tw-animate-css @radix-ui/react-select @radix-ui/react-dialog @radix-ui/react-switch @radix-ui/react-slot @radix-ui/react-label @radix-ui/react-tabs
 npm run dev
 ```
 Restart the dev server after changing `.env.local`. Open http://localhost:3000 and sign in.

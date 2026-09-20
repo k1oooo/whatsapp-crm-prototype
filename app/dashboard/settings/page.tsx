@@ -1,9 +1,9 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { SettingsForm } from "@/components/SettingsForm";
-import { Shell, displayFont } from "@/components/Shell";
+import { AssistantToggle } from "@/components/app/assistant-toggle";
 import { createClient } from "@/lib/supabase/server";
 import { sendMode } from "@/lib/send";
+import { Card, CardContent } from "@/components/ui/card";
 
 export default async function SettingsPage() {
   const supabase = await createClient();
@@ -20,35 +20,42 @@ export default async function SettingsPage() {
   if (!business) redirect("/dashboard");
 
   return (
-    <Shell>
-      <main className="mx-auto max-w-2xl px-4 py-8 sm:px-6 sm:py-12">
-        <Link
-          href="/dashboard"
-          className="text-sm text-[#55645E] hover:underline focus-visible:outline-2 focus-visible:outline-[#1F7A5C]"
-        >
-          Back to dashboard
-        </Link>
-        <h1 className="mt-4 text-3xl font-bold leading-tight tracking-tight sm:text-4xl" style={displayFont}>
-          Assistant settings
+    <div className="mx-auto flex max-w-3xl flex-col gap-8 p-4 sm:p-6">
+      {/* Page Header */}
+      <header className="flex flex-col gap-1">
+        <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground">
+          Settings
         </h1>
-        <p className="mt-2 text-[#55645E]">{business.name}</p>
+        <p className="text-muted-foreground">
+          Manage your AI assistant and business preferences for{" "}
+          <span className="font-medium text-foreground">{business.name}</span>.
+        </p>
+      </header>
 
-        {sendMode() === "dry" && (
-          <p className="mt-6 rounded-lg bg-[#FBEBD0] px-4 py-3 text-sm text-[#8A5000]">
-            Test mode: replies are saved in the conversation but not sent to WhatsApp. Set
-            WHATSAPP_SEND_MODE=live and WHATSAPP_ACCESS_TOKEN to send for real.
+      {/* Assistant Toggle Card */}
+      <Card>
+        <CardContent className="py-6">
+          <AssistantToggle initial={business.auto_reply} collapsed={false} />
+        </CardContent>
+      </Card>
+
+      {/* Knowledge Base Form */}
+      <div className="flex flex-col gap-4">
+        <div className="space-y-1">
+          <h2 className="text-lg font-semibold tracking-tight">
+            Knowledge Base
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Train your assistant on your rules, tone, and payment instructions.
           </p>
-        )}
-
-        <div className="mt-8">
-          <SettingsForm
-            autoReply={business.auto_reply}
-            facts={business.business_facts ?? ""}
-            toneNotes={business.tone_notes ?? ""}
-            paymentDetails={business.payment_details ?? ""}
-          />
         </div>
-      </main>
-    </Shell>
+        <SettingsForm
+          facts={business.business_facts ?? ""}
+          toneNotes={business.tone_notes ?? ""}
+          paymentDetails={business.payment_details ?? ""}
+          testMode={sendMode() === "dry"}
+        />
+      </div>
+    </div>
   );
 }

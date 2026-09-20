@@ -1,25 +1,50 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
+import { toast } from "sonner";
 import { moveStage } from "@/app/dashboard/actions";
-import { STAGES, STAGE_LABEL, type Stage } from "@/lib/leads";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { STAGES, STAGE_DOT, STAGE_LABEL, type Stage } from "@/lib/leads";
+import { cn } from "@/lib/utils";
 
-export function StageSelect({ leadId, stage }: { leadId: string; stage: Stage }) {
+// Render with key={stage} so it resets when the server changes the stage.
+export function StageSelect({
+  leadId,
+  stage,
+  compact = false,
+  className,
+}: {
+  leadId: string;
+  stage: Stage;
+  compact?: boolean;
+  className?: string;
+}) {
+  const [value, setValue] = useState<Stage>(stage);
   const [pending, start] = useTransition();
 
+  function change(next: string) {
+    setValue(next as Stage);
+    start(async () => {
+      await moveStage(leadId, next as Stage);
+      toast.success(`Moved to ${STAGE_LABEL[next as Stage]}`);
+    });
+  }
+
   return (
-    <select
-      aria-label="Move to stage"
-      value={stage}
-      disabled={pending}
-      onChange={(e) => start(() => moveStage(leadId, e.target.value as Stage))}
-      className="rounded-md border border-[#D8E0DA] bg-white px-2 py-1 text-sm disabled:opacity-60"
-    >
-      {STAGES.map((s) => (
-        <option key={s} value={s}>
-          {STAGE_LABEL[s]}
-        </option>
-      ))}
-    </select>
+    <Select value={value} onValueChange={change} disabled={pending}>
+      <SelectTrigger aria-label="Stage" className={cn(compact && "h-8 px-3 text-xs", className)}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {STAGES.map((s) => (
+          <SelectItem key={s} value={s}>
+            <span className="flex items-center gap-2">
+              <span aria-hidden className="size-2 rounded-full" style={{ background: STAGE_DOT[s] }} />
+              {STAGE_LABEL[s]}
+            </span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }

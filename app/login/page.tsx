@@ -1,5 +1,8 @@
-import { Shell, displayFont } from "@/components/Shell";
+import { MessagesSquare, TriangleAlert } from "lucide-react";
 import { SubmitButton } from "@/components/SubmitButton";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { signIn } from "./actions";
 
 export default async function LoginPage({
@@ -10,46 +13,42 @@ export default async function LoginPage({
   const { error } = await searchParams;
 
   return (
-    <Shell>
-      <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center px-6">
-        <h1 className="text-4xl font-bold leading-tight tracking-tight" style={displayFont}>
-          Don&apos;t let leads go cold.
-        </h1>
-        <p className="mt-3 text-[#55645E]">Sign in to see who to chase today.</p>
+    <main className="flex min-h-dvh items-center justify-center p-4">
+      <div className="w-full max-w-sm">
+        <div className="mb-8 flex flex-col items-center gap-3 text-center">
+          <span className="flex size-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
+            <MessagesSquare className="size-7" aria-hidden />
+          </span>
+          <h1 className="font-heading text-3xl leading-tight font-bold">Welcome back</h1>
+          <p className="text-muted-foreground">Sign in to see what needs you today.</p>
+        </div>
 
-        <form action={signIn} className="mt-8 space-y-4">
-          <label className="block text-sm font-medium">
-            Email
-            <input
-              name="email"
-              type="email"
-              required
-              autoComplete="email"
-              className="mt-1 w-full rounded-lg border border-[#D8E0DA] bg-white px-3 py-2 text-base"
-            />
-          </label>
-          <label className="block text-sm font-medium">
-            Password
-            <input
-              name="password"
-              type="password"
-              required
-              autoComplete="current-password"
-              className="mt-1 w-full rounded-lg border border-[#D8E0DA] bg-white px-3 py-2 text-base"
-            />
-          </label>
+        <Card>
+          <CardContent className="p-6">
+            <form action={signIn} className="flex flex-col gap-4">
+              <div className="grid gap-1.5">
+                <Label htmlFor="email">Email</Label>
+                <Input id="email" name="email" type="email" required autoComplete="email" />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="password">Password</Label>
+                <Input id="password" name="password" type="password" required autoComplete="current-password" />
+              </div>
 
-          {error && (
-            <p role="alert" className="text-sm text-[#B26A00]">
-              {error}
-            </p>
-          )}
+              {error && (
+                <p role="alert" className="flex items-start gap-2 rounded-lg bg-warning px-3 py-2 text-sm text-warning-foreground">
+                  <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+                  {error}
+                </p>
+              )}
 
-          <SubmitButton variant="primary" pendingText="Signing in...">
-            Sign in
-          </SubmitButton>
-        </form>
-      </main>
-    </Shell>
+              <SubmitButton variant="default" size="lg" pendingText="Signing in..." className="w-full">
+                Sign in
+              </SubmitButton>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    </main>
   );
 }

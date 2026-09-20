@@ -293,3 +293,18 @@ export async function answerHandoff(leadId: string, _prev: FormState, formData: 
 
   return deliver(supabase, ctx, body, "dashboard");
 }
+
+/** The switch in the sidebar: turn the assistant on or off. */
+export async function toggleAutoReply(next: boolean): Promise<FormState> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Please sign in again." };
+
+  const { error } = await supabase.from("businesses").update({ auto_reply: next }).eq("owner_id", user.id);
+  if (error) return { error: "Could not change the assistant. Try again." };
+
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
