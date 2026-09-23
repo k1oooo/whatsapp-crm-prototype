@@ -7,6 +7,7 @@ import { updateLead } from "@/app/dashboard/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import type { Lead } from "@/lib/leads";
 
 export function LeadEditForm({ lead }: { lead: Lead }) {
@@ -50,6 +51,16 @@ export function LeadEditForm({ lead }: { lead: Lead }) {
       <div className="grid gap-1.5">
         <Label htmlFor="deadline">Needed by</Label>
         <Input id="deadline" name="deadline" type="date" defaultValue={lead.deadline ?? ""} />
+      </div>
+      <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
+        <div>
+          <Label htmlFor="follow_up_consent">OK to send follow-ups and offers</Label>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Feedback requests, reorder reminders and promotions. Only turn this on if the customer agreed.
+            They can reply STOP at any time.
+          </p>
+        </div>
+        <Switch id="follow_up_consent" name="follow_up_consent" defaultChecked={lead.follow_up_consent === "yes"} />
       </div>
       <Button type="submit" disabled={pending} className="w-fit">
         {pending && <Loader2 className="animate-spin" />}

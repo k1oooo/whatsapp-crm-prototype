@@ -4,6 +4,7 @@ import {
   CircleHelp,
   ClipboardCheck,
   Hourglass,
+  Frown,
   Package,
   type LucideIcon,
 } from "lucide-react";
@@ -13,6 +14,7 @@ const ICONS: Record<string, LucideIcon> = {
   stock: Package,
   payment: Banknote,
   approval: ClipboardCheck,
+  feedback: Frown,
   unsure: CircleHelp,
 };
 

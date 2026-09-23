@@ -492,3 +492,58 @@ ${transcript(messages, true)}`;
     return fallback;
   }
 }
+
+/* ---------- Feedback replies ---------- */
+
+export interface FeedbackResult {
+  isFeedback: boolean;
+  rating: number | null;
+  comment: string | null;
+  unhappy: boolean;
+  reply: string;
+}
+
+/** Reads a customer's answer to "how was your order?" and writes a short thank-you. */
+export async function runFeedbackAgent(args: {
+  messages: ChatMessage[];
+  customerName: string | null;
+  toneNotes?: string | null;
+}): Promise<FeedbackResult> {
+  const { messages, customerName, toneNotes } = args;
+
+  if (provider() === "mock") {
+    const last = [...messages].reverse().find((m) => m.direction === "in")?.body ?? "";
+    const digit = last.match(/(?<!\d)[1-5](?!\d)/)?.[0];
+    if (!digit) return { isFeedback: false, rating: null, comment: null, unhappy: false, reply: "" };
+    const rating = Number(digit);
+    return {
+      isFeedback: true,
+      rating,
+      comment: last,
+      unhappy: rating <= 3,
+      reply: rating <= 3 ? "Maaf ya. Owner akan hubungi awak (mock)." : "Terima kasih banyak! (mock)",
+    };
+  }
+
+  const system = `You help a Malaysian small business owner collect feedback on WhatsApp. The shop just asked the customer how their order was and to rate it from 1 to 5. Chats mix English, Bahasa Malaysia and Manglish.
+${toneNotes ? `Owner tone notes: ${toneNotes}` : ""}
+
+Read the customer's latest message. Return ONLY a JSON object with exactly these keys:
+- is_feedback: true if they are answering the feedback request (a rating, an opinion, praise or a complaint). false if they are talking about something else, such as a new order or a question.
+- rating: an integer from 1 to 5. Use their number if they gave one. If they only used words, judge it ("sedap sangat" is 5, "okay je" is 3, "teruk" is 1). null if you cannot tell.
+- comment: what they said about the order, in a few words, or null.
+- unhappy: true if they sound unhappy or complain.
+- reply: a thank-you of 1 or 2 short sentences in the customer's language. If they are happy, thank them warmly. If they are unhappy or unsure, apologise and say the owner will contact them personally. Never offer a refund, discount or compensation. Do not include any link. Do not use em dashes. Empty string when is_feedback is false.`;
+
+  const user = `Customer name: ${customerName ?? "unknown"}\n\nChat:\n${transcript(messages, true)}`;
+  const raw = extractJson(await complete("agent", system, user));
+
+  const rating = Number(raw.rating);
+  return {
+    isFeedback: raw.is_feedback === true,
+    rating: Number.isInteger(rating) && rating >= 1 && rating <= 5 ? rating : null,
+    comment: str(raw.comment)?.slice(0, 500) ?? null,
+    unhappy: raw.unhappy === true,
+    reply: (str(raw.reply) ?? "").slice(0, 500),
+  };
+}

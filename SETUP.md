@@ -2,7 +2,7 @@
 
 ## 1. Supabase (free tier)
 1. supabase.com > organization "Vici" > New project (Singapore region).
-2. SQL Editor > run `supabase/migrations/0001_init.sql`, then `0002_quote_and_locks.sql`, then `0003_pending_decision.sql`, then `0004_auto_reply.sql`, then `0005_handoff_note.sql`, then `0006_order_flow.sql`. Run each file once, in order. If you see "already exists", that file was already run, so skip it.
+2. SQL Editor > run `supabase/migrations/0001_init.sql`, then `0002_quote_and_locks.sql`, then `0003_pending_decision.sql`, then `0004_auto_reply.sql`, then `0005_handoff_note.sql`, then `0006_order_flow.sql`, then `0007_follow_ups.sql`, then `0008_knowledge_base.sql`. Run each file once, in order. If you see "already exists", that file was already run, so skip it.
 3. Authentication > Users > Add user (your email + a password). Copy the user id.
 4. Insert your business row:
 
@@ -46,5 +46,15 @@ node --env-file=.env.local scripts/simulate-webhook.mjs "Boleh kurang sikit tak?
 node --env-file=.env.local scripts/simulate-webhook.mjs "" image
 ```
 
-## 6. Connect real WhatsApp later
+## 6. Knowledge base
+Dashboard > Knowledge base. Add entries under Menu and pricing, Location and delivery, Hours and lead time, Policies, and FAQ. An empty knowledge base shows a "Fill with an example" button that adds a starter set you can edit. The "Preview" button shows exactly what gets sent to the AI. This replaces the old single "What the assistant may say" box; if you had text there already, it now appears under the Other tab, unchanged.
+
+## 7. After-sale follow-ups
+Dashboard > Follow-ups > Automations: turn on "Ask for feedback" and/or "Remind them to reorder", set the days, and (for real sending) the WhatsApp template names. Add your review link.
+1. An order's follow-ups are queued when you click **Payment received**. That message also asks the customer to reply YA to agree to follow-ups. STOP always opts them out.
+2. Follow-ups only go to customers who agreed. You can also switch it on in a customer's Details.
+3. Test in test mode: click Payment received, reply YA as the customer with the simulator, then open Follow-ups > Queue and click "Send now". Reply with a rating (for example "5 sedap!") and the feedback appears under Feedback.
+4. A daily job sends due follow-ups at 10am Malaysia time. On Vercel it is configured in `vercel.json` (set `CRON_SECRET` in the project's environment variables). While testing locally, use the "Send what is due" button.
+
+## 8. Connect real WhatsApp later
 Meta developer app > WhatsApp > callback URL `https://YOUR-URL/api/whatsapp/webhook`, verify token = `WHATSAPP_VERIFY_TOKEN`, subscribe to `messages` (and `smb_message_echoes` for coexistence numbers). Put the real app secret in `WHATSAPP_APP_SECRET` and the real phone number id in your business row.

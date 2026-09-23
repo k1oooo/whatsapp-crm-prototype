@@ -1,10 +1,11 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { DashboardFrame } from "@/components/app/dashboard-frame";
 import { MobileNav } from "@/components/app/nav";
 import { Sidebar } from "@/components/app/sidebar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
-import { LEAD_COLUMNS, displayName, type ChatSummary, type Lead } from "@/lib/leads";
+import { LEAD_COLUMNS, displayName, isCold, type ChatSummary, type Lead } from "@/lib/leads";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -15,7 +16,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   const { data: business } = await supabase
     .from("businesses")
-    .select("id, name, auto_reply")
+    .select("id, name, auto_reply, cold_after_days")
     .eq("owner_id", user.id)
     .maybeSingle();
 
@@ -69,6 +70,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
         note: lead.handoff_note,
         orderStatus: lead.order_status,
         quote: lead.quoted_price_myr,
+        cold: isCold(lead, business.cold_after_days),
         lastBody: m?.body ?? null,
         lastDirection: m?.direction ?? null,
         lastSource: m?.source ?? null,
@@ -81,10 +83,16 @@ export default async function DashboardLayout({ children }: { children: React.Re
     });
 
   const needsYou = chats.filter((c) => c.needsYou).length;
+  const sidebarCollapsed = (await cookies()).get("sidebar-collapsed")?.value === "1";
 
   return (
     <div className="fixed inset-0 flex overflow-clip">
-      <Sidebar businessName={business.name} autoReply={business.auto_reply} needsYou={needsYou} />
+      <Sidebar
+        businessName={business.name}
+        autoReply={business.auto_reply}
+        needsYou={needsYou}
+        defaultCollapsed={sidebarCollapsed}
+      />
       <div className="flex min-w-0 flex-1 flex-col">
         <main className="min-h-0 flex-1">
           <DashboardFrame chats={chats}>{children}</DashboardFrame>

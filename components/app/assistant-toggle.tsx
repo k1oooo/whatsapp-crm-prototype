@@ -5,8 +5,10 @@ import { Bot } from "lucide-react";
 import { toast } from "sonner";
 import { toggleAutoReply } from "@/app/dashboard/actions";
 import { Switch } from "@/components/ui/switch";
+import { cn } from "@/lib/utils";
 
 // One switch to pause or resume the assistant, always visible in the sidebar.
+// The Bot icon stays in place open or closed. The text and the switch are revealed by the width.
 export function AssistantToggle({ initial, collapsed = false }: { initial: boolean; collapsed?: boolean }) {
   const [on, setOn] = useState(initial);
   const [pending, start] = useTransition();
@@ -24,40 +26,54 @@ export function AssistantToggle({ initial, collapsed = false }: { initial: boole
     });
   }
 
-  if (collapsed) {
-    return (
+  const label = on ? "Assistant is on. Click to pause." : "Assistant is paused. Click to turn on.";
+
+  return (
+    <div className="relative flex h-11 w-full items-center overflow-hidden rounded-xl border bg-background p-[3px] whitespace-nowrap">
       <button
         type="button"
         onClick={() => change(!on)}
         disabled={pending}
         aria-pressed={on}
-        aria-label={on ? "Assistant is on. Click to pause." : "Assistant is paused. Click to turn on."}
-        title={on ? "Assistant is on. Click to pause." : "Assistant is paused. Click to turn on."}
-        className={`relative mx-auto flex size-11 items-center justify-center rounded-xl border outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:opacity-60 ${on ? "bg-secondary text-primary" : "bg-muted text-muted-foreground"}`}
+        aria-label={label}
+        title={collapsed ? label : undefined}
+        className={cn(
+          "relative flex size-9 shrink-0 items-center justify-center rounded-lg outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:opacity-60",
+          on ? "bg-secondary text-primary" : "bg-muted text-muted-foreground",
+        )}
       >
         <Bot className="size-5" aria-hidden />
         <span
           aria-hidden
-          className={`absolute top-1.5 right-1.5 size-2.5 rounded-full border-2 border-card ${on ? "bg-primary" : "bg-muted-foreground"}`}
+          className={cn(
+            "absolute top-0.5 right-0.5 size-2.5 rounded-full border-2 border-card transition-opacity duration-200",
+            on ? "bg-primary" : "bg-muted-foreground",
+            collapsed ? "opacity-100 delay-100" : "opacity-0",
+          )}
         />
       </button>
-    );
-  }
 
-  return (
-    <div className="flex items-center gap-3 rounded-xl border bg-background p-3">
-      <span
-        className={`flex size-9 items-center justify-center rounded-lg ${on ? "bg-secondary text-primary" : "bg-muted text-muted-foreground"}`}
+      <div
+        aria-hidden
+        className={cn("ml-3 min-w-0 transition-opacity duration-200", collapsed ? "opacity-0" : "opacity-100 delay-100")}
       >
-        <Bot className="size-5" aria-hidden />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p id="assistant-label" className="text-sm leading-tight font-semibold">
-          Assistant
-        </p>
+        <p className="text-sm leading-tight font-semibold">Assistant</p>
         <p className="text-xs text-muted-foreground">{on ? "Answering customers" : "Paused"}</p>
       </div>
-      <Switch checked={on} onCheckedChange={change} disabled={pending} aria-labelledby="assistant-label" />
+
+      <div className="pointer-events-none absolute inset-y-0 left-0 flex w-[234px] items-center justify-end pr-3">
+        <Switch
+          checked={on}
+          onCheckedChange={change}
+          disabled={pending}
+          inert={collapsed}
+          aria-label="Assistant on or off"
+          className={cn(
+            "pointer-events-auto transition-opacity duration-200",
+            collapsed ? "opacity-0" : "opacity-100 delay-100",
+          )}
+        />
+      </div>
     </div>
   );
 }

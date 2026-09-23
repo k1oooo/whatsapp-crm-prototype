@@ -36,6 +36,7 @@ export interface Lead {
   pending_decision: boolean;
   human_reason: string | null;
   handoff_note: string | null;
+  follow_up_consent: "unknown" | "yes" | "no";
   order_status: string | null;
   order_summary: string | null;
 }
@@ -52,6 +53,7 @@ export const REASON_LABEL: Record<string, string> = {
   discount: "asked for a discount",
   stock: "asked about stock or availability",
   payment: "payment to check",
+  feedback: "unhappy customer",
   unsure: "the assistant was not sure",
 };
 
@@ -70,7 +72,7 @@ export interface LastMessage {
 }
 
 export const LEAD_COLUMNS =
-  "id, wa_contact_number, name, need, budget_myr, quoted_price_myr, deadline, stage, language, last_message_at, last_chased_at, locked_fields, pending_decision, human_reason, handoff_note, order_status, order_summary";
+  "id, wa_contact_number, name, need, budget_myr, quoted_price_myr, deadline, stage, language, last_message_at, last_chased_at, locked_fields, pending_decision, human_reason, handoff_note, follow_up_consent, order_status, order_summary";
 
 const DAY = 86_400_000;
 
@@ -162,6 +164,7 @@ export interface ChatSummary {
   note: string | null;
   orderStatus: string | null;
   quote: number | null;
+  cold: boolean;
   lastBody: string | null;
   lastDirection: "in" | "out" | null;
   lastSource: string | null;
@@ -266,4 +269,19 @@ export function parseOrderSummary(
     items: parts[0] || summary,
     where: where ? where.charAt(0).toUpperCase() + where.slice(1) : null,
   };
+}
+
+/** "Today, 3:32 pm", "Tomorrow, 10:00 am", "Yesterday, 5:10 pm" or "22 Sept, 10:00 am". */
+export function whenLabel(iso: string): string {
+  const day = klDate(iso);
+  const at = (offset: number) => klDate(new Date(Date.now() + offset * 86_400_000).toISOString());
+  const label =
+    day === at(0)
+      ? "Today"
+      : day === at(1)
+        ? "Tomorrow"
+        : day === at(-1)
+          ? "Yesterday"
+          : new Date(iso).toLocaleDateString("en-MY", { timeZone: KL, day: "numeric", month: "short" });
+  return `${label}, ${clockTime(iso)}`;
 }

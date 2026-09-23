@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { ChatAvatar } from "@/components/chat-avatar";
 import { DetailsSheet } from "@/components/chat/details-sheet";
-import { StageSelect } from "@/components/StageSelect";
+import { StagePill } from "@/components/stage-pill";
 import { Button } from "@/components/ui/button";
 import { displayName, type Lead } from "@/lib/leads";
 
@@ -19,7 +19,7 @@ export function ChatHeader({ lead }: { lead: Lead }) {
         <h1 className="truncate font-heading text-lg leading-tight font-bold">{displayName(lead)}</h1>
         <p className="truncate text-sm text-muted-foreground">+{lead.wa_contact_number}</p>
       </div>
-      <StageSelect key={`${lead.id}-${lead.stage}`} leadId={lead.id} stage={lead.stage} />
+      <StagePill stage={lead.stage} />
       <DetailsSheet lead={lead} />
     </header>
   );

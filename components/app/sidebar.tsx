@@ -1,174 +1,114 @@
 "use client";
 
 import Link from "next/link";
-import { useSyncExternalStore } from "react";
-import {
-  LogOut,
-  MessagesSquare,
-  PanelLeftClose,
-  PanelLeftOpen,
-} from "lucide-react";
-
+import { useState } from "react";
+import { MessagesSquare, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { AssistantToggle } from "@/components/app/assistant-toggle";
 import { SidebarNav } from "@/components/app/nav";
-import { SubmitButton } from "@/components/SubmitButton";
+import { SignOutButton } from "@/components/app/sign-out-button";
 import { Button } from "@/components/ui/button";
 import { signOut } from "@/app/login/actions";
 import { cn } from "@/lib/utils";
 
-const KEY = "sidebar-collapsed";
-const EVENT = "sidebar-toggle";
+const fade = (collapsed: boolean) =>
+  cn("transition-opacity duration-200", collapsed ? "opacity-0" : "opacity-100 delay-100");
 
-function subscribe(onChange: () => void) {
-  window.addEventListener("storage", onChange);
-  window.addEventListener(EVENT, onChange);
-  return () => {
-    window.removeEventListener("storage", onChange);
-    window.removeEventListener(EVENT, onChange);
-  };
-}
-
-function readCollapsed() {
-  try {
-    return localStorage.getItem(KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
+// Open and closed use the exact same layout. Only the sidebar's width changes, which reveals or
+// hides the text. Icons and the logo never move, so nothing twitches.
 export function Sidebar({
   businessName,
   autoReply,
   needsYou,
+  defaultCollapsed,
 }: {
   businessName: string;
   autoReply: boolean;
   needsYou: number;
+  defaultCollapsed: boolean;
 }) {
-  const collapsed = useSyncExternalStore(subscribe, readCollapsed, () => false);
+  // The choice is kept in a cookie, so the server draws the sidebar the way you left it.
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
 
   function toggle() {
-    try {
-      localStorage.setItem(KEY, collapsed ? "0" : "1");
-    } catch {
-      // Private mode
-    }
-    window.dispatchEvent(new Event(EVENT));
+    const next = !collapsed;
+    setCollapsed(next);
+    document.cookie = `sidebar-collapsed=${next ? 1 : 0}; path=/; max-age=31536000; samesite=lax`;
   }
 
   return (
     <aside
       className={cn(
-        // Locked horizontal padding (px-3 = 12px).
-        // 12px padding + 40px icon + 12px padding = 64px total width when collapsed.
-        // This guarantees perfect centering when closed, and zero icon movement when expanding.
-        "hidden shrink-0 flex-col gap-6 border-r bg-card transition-[width] duration-300 ease-in-out lg:flex overflow-hidden whitespace-nowrap",
-        collapsed ? "w-16 py-4 px-3" : "w-64 py-4 px-3",
+        "hidden shrink-0 overflow-clip border-r bg-card transition-[width] duration-300 ease-in-out motion-reduce:transition-none lg:block",
+        collapsed ? "w-16" : "w-64",
       )}
     >
-      {/* Header Container */}
-      <div className="flex items-center h-10 w-full">
-        {/* Stationary Icon Container (Exactly 40x40px) */}
-        <div className="relative size-10 shrink-0">
-          <button
-            type="button"
-            onClick={toggle}
-            className={cn(
-              "absolute inset-0 flex items-center justify-center rounded-xl bg-primary text-primary-foreground transition-opacity duration-200 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 group",
-              collapsed
-                ? "opacity-100 z-10 delay-100"
-                : "opacity-0 z-0 pointer-events-none",
-            )}
-          >
-            <MessagesSquare className="size-5 group-hover:hidden" aria-hidden />
-            <PanelLeftOpen
-              className="hidden size-5 group-hover:block"
-              aria-hidden
-            />
-          </button>
-
+      <div className="flex h-full flex-col gap-6 p-2.5">
+        <div className="relative h-11 shrink-0 overflow-hidden">
           <Link
             href="/dashboard"
-            className={cn(
-              "absolute inset-0 flex items-center justify-center rounded-xl bg-primary text-primary-foreground transition-opacity duration-200 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
-              collapsed
-                ? "opacity-0 z-0 pointer-events-none"
-                : "opacity-100 z-10 delay-100",
-            )}
+            onClick={(e) => {
+              // Closed, the logo is the "open the sidebar" button.
+              if (collapsed) {
+                e.preventDefault();
+                toggle();
+              }
+            }}
+            title={collapsed ? "Expand sidebar" : "Go to the inbox"}
+            aria-label={collapsed ? "Expand sidebar" : `${businessName}, go to the inbox`}
+            className="group/logo flex h-11 w-full items-center overflow-hidden rounded-xl whitespace-nowrap outline-none"
           >
-            <MessagesSquare className="size-5" aria-hidden />
+            <span className="flex size-11 shrink-0 items-center justify-center">
+              <span
+                className={cn(
+                  "relative flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-colors duration-200 group-focus-visible/logo:ring-2 group-focus-visible/logo:ring-ring/50",
+                  collapsed && "group-hover/logo:bg-secondary group-hover/logo:text-foreground",
+                )}
+              >
+                <MessagesSquare
+                  className={cn(
+                    "absolute size-5 transition-opacity duration-200",
+                    collapsed && "group-hover/logo:opacity-0 group-focus-visible/logo:opacity-0",
+                  )}
+                  aria-hidden
+                />
+                <PanelLeftOpen
+                  className={cn(
+                    "absolute size-5 opacity-0 transition-opacity duration-200",
+                    collapsed && "group-hover/logo:opacity-100 group-focus-visible/logo:opacity-100",
+                  )}
+                  aria-hidden
+                />
+              </span>
+            </span>
+            <span aria-hidden className={cn("min-w-0 pl-2", fade(collapsed))}>
+              <span className="block truncate font-heading text-lg leading-tight font-bold">{businessName}</span>
+              <span className="block text-xs text-muted-foreground">WhatsApp orders</span>
+            </span>
           </Link>
-        </div>
 
-        {/* CSS Grid text reveal: smoothly animates from 0px to its exact inner width */}
-        <div
-          className={cn(
-            "grid transition-all duration-300 ease-in-out",
-            collapsed
-              ? "grid-cols-[0fr] opacity-0 ml-0"
-              : "grid-cols-[1fr] opacity-100 ml-3",
-          )}
-        >
-          <div className="overflow-hidden flex flex-col justify-center">
-            <span className="block truncate font-heading text-lg font-bold leading-tight">
-              {businessName}
-            </span>
-            <span className="block truncate text-xs text-muted-foreground">
-              WhatsApp orders
-            </span>
+          <div className="pointer-events-none absolute inset-y-0 left-0 flex w-[236px] items-center justify-end">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggle}
+              inert={collapsed}
+              aria-label="Collapse sidebar"
+              title="Collapse sidebar"
+              className={cn("pointer-events-auto size-9 text-muted-foreground", fade(collapsed))}
+            >
+              <PanelLeftClose />
+            </Button>
           </div>
         </div>
 
-        {/* Close Button scales away gracefully */}
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={toggle}
-          className={cn(
-            "shrink-0 text-muted-foreground transition-all duration-300 ease-in-out ml-auto",
-            collapsed
-              ? "w-0 opacity-0 pointer-events-none overflow-hidden"
-              : "w-9 opacity-100",
-          )}
-        >
-          <PanelLeftClose />
-        </Button>
-      </div>
+        <SidebarNav needsYou={needsYou} collapsed={collapsed} />
 
-      <SidebarNav needsYou={needsYou} collapsed={collapsed} />
-
-      <div className="mt-auto flex flex-col gap-3">
-        <form
-          action={signOut}
-          className="flex w-full"
-          title={collapsed ? "Sign out" : undefined}
-        >
-          <SubmitButton
-            variant="ghost"
-            pendingText="Signing out..."
-            // Remove the default button padding (p-0) and handle alignment with our exact 40px icon box.
-            // This ensures it lines up pixel-perfectly with the header logo above it.
-            className="flex h-10 w-full items-center justify-start p-0 overflow-hidden"
-          >
-            {/* Same 40x40 stationary wrapper as the header */}
-            <div className="flex size-10 shrink-0 items-center justify-center text-muted-foreground">
-              <LogOut className="size-5" aria-hidden="true" />
-            </div>
-
-            {/* Same grid text reveal as the header */}
-            <div
-              className={cn(
-                "grid transition-all duration-300 ease-in-out",
-                collapsed
-                  ? "grid-cols-[0fr] opacity-0 ml-0"
-                  : "grid-cols-[1fr] opacity-100 ml-2",
-              )}
-            >
-              <span className="overflow-hidden text-left text-muted-foreground">
-                Sign out
-              </span>
-            </div>
-          </SubmitButton>
-        </form>
+        <div className="mt-auto flex flex-col gap-2">
+          <AssistantToggle initial={autoReply} collapsed={collapsed} />
+          <form action={signOut}>
+            <SignOutButton collapsed={collapsed} />
+          </form>
+        </div>
       </div>
     </aside>
   );

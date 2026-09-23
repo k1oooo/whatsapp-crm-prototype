@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { CONSENT_ASK, readSettings } from "@/lib/follow-up-settings";
+import { scheduleAfterPayment } from "@/lib/follow-ups";
 import { sendWhatsAppText } from "@/lib/send";
 import { draftFollowUp, writeConfirmation, type ChatMessage, type LeadFields } from "@/lib/ai";
 import { LEAD_COLUMNS, STAGES, type Lead, type Stage } from "@/lib/leads";
@@ -102,6 +104,16 @@ export async function updateLead(leadId: string, _prev: FormState, formData: For
     .eq("id", leadId);
   if (error) return { error: "Could not save. Try again." };
 
+  // The "OK to send follow-ups" switch.
+  const agreed = formData.get("follow_up_consent") === "on";
+  if (agreed !== (lead.follow_up_consent === "yes")) {
+    const { error: consentError } = await supabase
+      .from("leads")
+      .update({ follow_up_consent: agreed ? "yes" : "no" })
+      .eq("id", leadId);
+    if (consentError) return { error: "Saved, but could not change the follow-up setting." };
+  }
+
   revalidatePath("/dashboard", "layout");
   return { ok: true };
 }
@@ -120,11 +132,12 @@ export async function saveSettings(_prev: FormState, formData: FormData): Promis
     return v === "" ? null : v;
   };
 
+  // business_facts (the knowledge base's "Other notes") is saved from the Knowledge base page,
+  // not here, so this never overwrites it with an empty value.
   const { error } = await supabase
     .from("businesses")
     .update({
       auto_reply: formData.get("auto_reply") === "on",
-      business_facts: text("business_facts"),
       tone_notes: text("tone_notes"),
       payment_details: text("payment_details"),
     })
@@ -247,12 +260,23 @@ export async function confirmPayment(leadId: string, _prev: FormState, _formData
   const ctx = await loadContext(supabase, leadId);
   if (typeof ctx === "string") return { error: ctx };
 
-  const body = await writeConfirmation({
+  // After-sale follow-up settings. Missing columns (migration 0007) just mean follow-ups are off.
+  const { data: biz } = await supabase
+    .from("businesses")
+    .select("follow_up_settings")
+    .eq("id", ctx.lead.business_id)
+    .maybeSingle();
+  const settings = readSettings(biz?.follow_up_settings);
+  const followUpsOn = settings.feedback.enabled || settings.reorder.enabled;
+  const askConsent = followUpsOn && ctx.lead.follow_up_consent === "unknown";
+
+  let body = await writeConfirmation({
     summary: ctx.lead.order_summary,
     lead: leadFields(ctx.lead),
     messages: ctx.messages,
     toneNotes: ctx.business.tone_notes,
   });
+  if (askConsent) body += `\n\n${CONSENT_ASK}`;
 
   // The order is paid: mark it won, and lock the stage so the AI does not reopen it.
   const locked = [...new Set([...(ctx.lead.locked_fields ?? []), "stage"])];
@@ -261,6 +285,24 @@ export async function confirmPayment(leadId: string, _prev: FormState, _formData
   if (result.ok) {
     const { error } = await supabase.from("leads").update({ order_status: "paid" }).eq("id", leadId);
     if (error) console.error("Could not mark the order as paid (is migration 0006 applied?)", error.message);
+
+    // Queue the after-sale follow-ups for this order.
+    const paidAt = new Date().toISOString();
+    const { error: paidError } = await supabase
+      .from("leads")
+      .update({ paid_at: paidAt, ...(askConsent ? { consent_asked_at: paidAt } : {}) })
+      .eq("id", leadId);
+    if (paidError) {
+      console.error("Could not record the payment time (is migration 0007 applied?)", paidError.message);
+    } else if (followUpsOn) {
+      await scheduleAfterPayment(supabase, {
+        businessId: ctx.lead.business_id,
+        leadId,
+        deadline: ctx.lead.deadline,
+        paidAt,
+        settings,
+      });
+    }
   }
   return result;
 }

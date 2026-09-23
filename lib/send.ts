@@ -45,3 +45,49 @@ export async function sendWhatsAppText(
   if (!id) throw new Error("WhatsApp send returned no message id");
   return { id, dry: false };
 }
+
+/**
+ * Send an approved template. Needed for any message the business starts, more than 24 hours after
+ * the customer last wrote. Templates are created and approved in WhatsApp Manager.
+ */
+export async function sendWhatsAppTemplate(
+  phoneNumberId: string,
+  to: string,
+  templateName: string,
+  languageCode: string,
+  params: string[],
+): Promise<SendResult> {
+  if (sendMode() === "dry") {
+    return { id: `dry.${crypto.randomUUID()}`, dry: true };
+  }
+  if (!templateName) throw new Error("No template name set for this follow-up");
+
+  const version = process.env.WHATSAPP_API_VERSION || "v23.0";
+  const res = await fetch(`https://graph.facebook.com/${version}/${phoneNumberId}/messages`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to,
+      type: "template",
+      template: {
+        name: templateName,
+        language: { code: languageCode },
+        components: params.length
+          ? [{ type: "body", parameters: params.map((text) => ({ type: "text", text })) }]
+          : [],
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`WhatsApp template send failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
+  }
+  const json = await res.json();
+  const id = json.messages?.[0]?.id;
+  if (!id) throw new Error("WhatsApp template send returned no message id");
+  return { id, dry: false };
+}

@@ -3,7 +3,6 @@ import { CircleCheck, Clock } from "lucide-react";
 import { ChatAvatar } from "@/components/chat-avatar";
 import { OrderLines } from "@/components/order-lines";
 import { ReasonIcon } from "@/components/reason-icon";
-import { StageSelect } from "@/components/StageSelect";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { REASON_LABEL, chatTime, displayName, isCold, lastTouch, rm, type Lead } from "@/lib/leads";
@@ -59,12 +58,9 @@ export function LeadCard({ lead, coldAfterDays }: { lead: Lead; coldAfterDays: n
         <OrderLines lead={lead} />
       </div>
 
-      <div className="flex items-center justify-between gap-2">
-        <StageSelect key={`${lead.id}-${lead.stage}`} leadId={lead.id} stage={lead.stage} compact />
-        {lead.quoted_price_myr ? (
-          <span className="font-heading text-lg font-bold">{rm(lead.quoted_price_myr)}</span>
-        ) : null}
-      </div>
+      {lead.quoted_price_myr ? (
+        <p className="text-right font-heading text-lg font-bold">{rm(lead.quoted_price_myr)}</p>
+      ) : null}
     </Card>
   );
 }

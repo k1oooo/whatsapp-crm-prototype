@@ -33,6 +33,6 @@ export async function proxy(request: NextRequest) {
 export const config = {
   // Skip static files and the WhatsApp webhook.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|api/whatsapp|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|api/whatsapp|api/cron|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

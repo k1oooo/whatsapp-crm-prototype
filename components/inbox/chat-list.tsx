@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { Bot, CircleCheck, Image as ImageIcon, MessageSquareDashed, Search } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Bot, CircleCheck, Image as ImageIcon, MessageSquareDashed, Search, X } from "lucide-react";
 import { ChatAvatar } from "@/components/chat-avatar";
+import { ChatFilterSheet } from "@/components/inbox/chat-filter-sheet";
+import { ALL_FILTERS, matchesFilters, type FilterId } from "@/components/inbox/chat-filters";
 import { ReasonIcon } from "@/components/reason-icon";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   ORDER_LABEL,
   REASON_LABEL,
@@ -35,6 +37,33 @@ function Preview({ chat }: { chat: ChatSummary }) {
   );
 }
 
+function StatusBadge({ chat }: { chat: ChatSummary }) {
+  if (chat.needsYou) {
+    return (
+      <Badge variant="warning">
+        <ReasonIcon reason={chat.reason} />
+        {chat.reason ? (REASON_LABEL[chat.reason] ?? chat.reason) : "you said you would check"}
+      </Badge>
+    );
+  }
+  if (chat.orderStatus === "paid") {
+    return (
+      <Badge variant="success">
+        <CircleCheck />
+        {ORDER_LABEL.paid}
+      </Badge>
+    );
+  }
+  if (chat.orderStatus === "confirmed") return <Badge variant="info">Waiting for payment</Badge>;
+  if (chat.cold) return <Badge variant="info">Quiet</Badge>;
+  return (
+    <Badge variant="muted">
+      <span aria-hidden className="size-1.5 rounded-full" style={{ background: STAGE_DOT[chat.stage] }} />
+      {STAGE_LABEL[chat.stage]}
+    </Badge>
+  );
+}
+
 function Item({ chat, active }: { chat: ChatSummary; active: boolean }) {
   return (
     <li>
@@ -56,22 +85,7 @@ function Item({ chat, active }: { chat: ChatSummary; active: boolean }) {
             <Preview chat={chat} />
           </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            {chat.needsYou ? (
-              <Badge variant="warning">
-                <ReasonIcon reason={chat.reason} />
-                {chat.reason ? (REASON_LABEL[chat.reason] ?? chat.reason) : "you said you would check"}
-              </Badge>
-            ) : chat.orderStatus === "paid" ? (
-              <Badge variant="success">
-                <CircleCheck />
-                {ORDER_LABEL.paid}
-              </Badge>
-            ) : (
-              <Badge variant="muted">
-                <span aria-hidden className="size-1.5 rounded-full" style={{ background: STAGE_DOT[chat.stage] }} />
-                {chat.orderStatus === "confirmed" ? "Waiting for payment" : STAGE_LABEL[chat.stage]}
-              </Badge>
-            )}
+            <StatusBadge chat={chat} />
           </div>
         </div>
       </Link>
@@ -80,53 +94,79 @@ function Item({ chat, active }: { chat: ChatSummary; active: boolean }) {
 }
 
 export function ChatList({ chats, activeId }: { chats: ChatSummary[]; activeId: string | null }) {
-  const needs = chats.filter((c) => c.needsYou);
-  const [tab, setTab] = useState<"needs" | "all">(needs.length > 0 ? "needs" : "all");
+  const needsCount = chats.filter((c) => c.needsYou).length;
+  const [filters, setFilters] = useState<Set<FilterId>>(() => (needsCount > 0 ? new Set(["needs_you"]) : new Set()));
   const [query, setQuery] = useState("");
 
   const q = query.trim().toLowerCase();
-  const pool = q ? chats : tab === "needs" ? needs : chats;
-  const shown = pool.filter((c) => !q || c.name.toLowerCase().includes(q) || c.number.includes(q.replace(/^\+/, "")));
+  const shown = useMemo(
+    () =>
+      chats.filter(
+        (c) =>
+          matchesFilters(c, filters) &&
+          (!q || c.name.toLowerCase().includes(q) || c.number.includes(q.replace(/^\+/, ""))),
+      ),
+    [chats, filters, q],
+  );
+
+  const activeChips = ALL_FILTERS.filter((f) => filters.has(f.id));
+
+  function removeFilter(id: FilterId) {
+    const next = new Set(filters);
+    next.delete(id);
+    setFilters(next);
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="space-y-3 border-b p-4">
-        <h1 className="font-heading text-2xl leading-tight font-bold">Inbox</h1>
-        <div className="relative">
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-          <Input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search name or number"
-            aria-label="Search chats"
-            className="pl-9"
-          />
+        <div className="flex items-center justify-between gap-2">
+          <h1 className="font-heading text-2xl leading-tight font-bold">Inbox</h1>
+          {needsCount > 0 && <Badge variant="warning">{needsCount} need you</Badge>}
         </div>
-        <Tabs value={tab} onValueChange={(v) => setTab(v as "needs" | "all")}>
-          <TabsList>
-            <TabsTrigger value="needs">
-              Needs you
-              {needs.length > 0 && <Badge variant="warning">{needs.length}</Badge>}
-            </TabsTrigger>
-            <TabsTrigger value="all">All chats</TabsTrigger>
-          </TabsList>
-        </Tabs>
+
+        <div className="flex gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <Input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search name or number"
+              aria-label="Search chats"
+              className="pl-9"
+            />
+          </div>
+          <ChatFilterSheet selected={filters} onChange={setFilters} />
+        </div>
+
+        {activeChips.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {activeChips.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => removeFilter(f.id)}
+                className="flex items-center gap-1 rounded-full border bg-secondary py-1 pr-2 pl-3 text-xs font-medium outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+              >
+                {f.label}
+                <X className="size-3.5" aria-hidden />
+              </button>
+            ))}
+            <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => setFilters(new Set())}>
+              Clear all
+            </Button>
+          </div>
+        )}
       </div>
 
       {shown.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
-          {q ? (
+          {q || activeChips.length > 0 ? (
             <>
               <MessageSquareDashed className="size-9 text-muted-foreground" aria-hidden />
               <p className="font-semibold">No chats match</p>
-              <p className="text-sm text-muted-foreground">Try a different name or number.</p>
-            </>
-          ) : tab === "needs" ? (
-            <>
-              <CircleCheck className="size-9 text-primary" aria-hidden />
-              <p className="font-semibold">Nothing needs you</p>
-              <p className="text-sm text-muted-foreground">The assistant is handling every chat.</p>
+              <p className="text-sm text-muted-foreground">Try a different search or fewer filters.</p>
             </>
           ) : (
             <>
