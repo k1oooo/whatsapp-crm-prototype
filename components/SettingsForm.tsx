@@ -6,7 +6,13 @@ import { ArrowRight, Bot, BookOpen, Landmark, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { saveSettings } from "@/app/dashboard/actions";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -45,17 +51,22 @@ export function SettingsForm({
           <div className="flex-1">
             <CardTitle>Answer customers automatically</CardTitle>
             <CardDescription className="mt-1">
-              The assistant replies on its own. It hands the chat to you for discounts, payments to check, and
-              anything it is not sure about.
+              The assistant replies on its own. It hands the chat to you for
+              discounts, payments to check, and anything it is not sure about.
             </CardDescription>
           </div>
-          <Switch name="auto_reply" defaultChecked={autoReply} aria-label="Answer customers automatically" />
+          <Switch
+            name="auto_reply"
+            defaultChecked={autoReply}
+            aria-label="Answer customers automatically"
+          />
         </CardHeader>
         {testMode && (
           <CardContent>
             <p className="rounded-lg bg-warning px-4 py-3 text-sm text-warning-foreground">
-              Test mode: replies are saved in the chat but not sent to WhatsApp. Set WHATSAPP_SEND_MODE=live and
-              WHATSAPP_ACCESS_TOKEN to send for real.
+              Test mode: replies are saved in the chat but not sent to WhatsApp.
+              Set WHATSAPP_SEND_MODE=live and WHATSAPP_ACCESS_TOKEN to send for
+              real.
             </p>
           </CardContent>
         )}
@@ -69,8 +80,8 @@ export function SettingsForm({
           <div className="flex-1">
             <CardTitle>What the assistant knows</CardTitle>
             <CardDescription className="mt-1">
-              Menu, prices, location, hours and FAQ now live on their own page, organised into sections instead of
-              one long text box.
+              Menu, prices, location, hours and FAQ now live on their own page,
+              organised into sections instead of one long text box.
             </CardDescription>
           </div>
         </CardHeader>
@@ -92,7 +103,8 @@ export function SettingsForm({
           <div className="flex-1">
             <CardTitle>Payment details</CardTitle>
             <CardDescription className="mt-1">
-              Sent word for word to a customer right after they confirm an order.
+              Sent word for word to a customer right after they confirm an
+              order.
             </CardDescription>
           </div>
         </CardHeader>
@@ -102,7 +114,9 @@ export function SettingsForm({
             defaultValue={paymentDetails}
             rows={4}
             aria-label="Payment details"
-            placeholder={"Bank transfer to:\nMaybank 1234 5678 9012\nAccount name: Test Bakery"}
+            placeholder={
+              "Bank transfer to:\nMaybank 1234 5678 9012\nAccount name: Test Bakery"
+            }
           />
         </CardContent>
       </Card>
@@ -110,7 +124,9 @@ export function SettingsForm({
       <Card>
         <CardHeader>
           <CardTitle>How you talk to customers</CardTitle>
-          <CardDescription>Optional. One line about your style.</CardDescription>
+          <CardDescription>
+            Optional. One line about your style.
+          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-1.5">
           <Label htmlFor="tone_notes" className="sr-only">

@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, Columns3, Megaphone, MessagesSquare, Settings, type LucideIcon } from "lucide-react";
+import {
+  BookOpen,
+  Columns3,
+  Megaphone,
+  MessagesSquare,
+  Settings,
+  type LucideIcon,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -23,16 +30,42 @@ function useItems(needsYou: number): Item[] {
       active: (p) => p === "/dashboard" || p.startsWith("/dashboard/leads"),
       count: needsYou,
     },
-    { href: "/dashboard/pipeline", label: "Pipeline", icon: Columns3, active: (p) => p.startsWith("/dashboard/pipeline") },
-    { href: "/dashboard/follow-ups", label: "Follow-ups", icon: Megaphone, active: (p) => p.startsWith("/dashboard/follow-ups") },
-    { href: "/dashboard/knowledge", label: "Knowledge base", icon: BookOpen, active: (p) => p.startsWith("/dashboard/knowledge") },
-    { href: "/dashboard/settings", label: "Settings", icon: Settings, active: (p) => p.startsWith("/dashboard/settings") },
+    {
+      href: "/dashboard/pipeline",
+      label: "Pipeline",
+      icon: Columns3,
+      active: (p) => p.startsWith("/dashboard/pipeline"),
+    },
+    {
+      href: "/dashboard/follow-ups",
+      label: "Follow-ups",
+      icon: Megaphone,
+      active: (p) => p.startsWith("/dashboard/follow-ups"),
+    },
+    {
+      href: "/dashboard/knowledge",
+      label: "Knowledge base",
+      icon: BookOpen,
+      active: (p) => p.startsWith("/dashboard/knowledge"),
+    },
+    {
+      href: "/dashboard/settings",
+      label: "AI Settings",
+      icon: Settings,
+      active: (p) => p.startsWith("/dashboard/settings"),
+    },
   ];
 }
 
 // Every item has the same layout open or closed. The icon stays put and the sidebar's width
 // simply reveals or hides the text, so nothing jumps.
-export function SidebarNav({ needsYou, collapsed = false }: { needsYou: number; collapsed?: boolean }) {
+export function SidebarNav({
+  needsYou,
+  collapsed = false,
+}: {
+  needsYou: number;
+  collapsed?: boolean;
+}) {
   const pathname = usePathname();
   return (
     <nav aria-label="Main" className="flex flex-col gap-1">
@@ -66,7 +99,10 @@ export function SidebarNav({ needsYou, collapsed = false }: { needsYou: number; 
             </span>
             <span
               aria-hidden
-              className={cn("transition-opacity duration-200", collapsed ? "opacity-0" : "opacity-100 delay-100")}
+              className={cn(
+                "transition-opacity duration-200",
+                collapsed ? "opacity-0" : "opacity-100 delay-100",
+              )}
             >
               {label}
             </span>
@@ -75,7 +111,10 @@ export function SidebarNav({ needsYou, collapsed = false }: { needsYou: number; 
                 <Badge
                   variant="warning"
                   aria-hidden
-                  className={cn("transition-opacity duration-200", collapsed ? "opacity-0" : "opacity-100 delay-100")}
+                  className={cn(
+                    "transition-opacity duration-200",
+                    collapsed ? "opacity-0" : "opacity-100 delay-100",
+                  )}
                 >
                   {count}
                 </Badge>
