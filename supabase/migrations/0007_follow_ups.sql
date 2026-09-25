@@ -1,20 +1,34 @@
 -- 0007_follow_ups.sql
--- After-sale follow-ups (feedback requests, reorder reminders, marketing broadcasts),
--- the customer's consent to receive them, and the feedback they send back.
 
-alter table public.leads
-  add column follow_up_consent text not null default 'unknown'
-    check (follow_up_consent in ('unknown', 'yes', 'no')),
-  add column consent_asked_at timestamptz,
-  add column awaiting_feedback boolean not null default false,
-  add column paid_at timestamptz;
+DO $$ 
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='leads' AND column_name='follow_up_consent') THEN
+    ALTER TABLE public.leads ADD COLUMN follow_up_consent text not null default 'unknown' check (follow_up_consent in ('unknown', 'yes', 'no'));
+  END IF;
 
-alter table public.businesses
-  add column follow_up_settings jsonb not null default '{}'::jsonb;
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='leads' AND column_name='consent_asked_at') THEN
+    ALTER TABLE public.leads ADD COLUMN consent_asked_at timestamptz;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='leads' AND column_name='awaiting_feedback') THEN
+    ALTER TABLE public.leads ADD COLUMN awaiting_feedback boolean not null default false;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='leads' AND column_name='paid_at') THEN
+    ALTER TABLE public.leads ADD COLUMN paid_at timestamptz;
+  END IF;
+END $$;
+
+DO $$ 
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='businesses' AND column_name='follow_up_settings') THEN
+    ALTER TABLE public.businesses ADD COLUMN follow_up_settings jsonb not null default '{}'::jsonb;
+  END IF;
+END $$;
 
 /* ---------- follow_ups ---------- */
 
-create table public.follow_ups (
+create table if not exists public.follow_ups (
   id uuid primary key default gen_random_uuid(),
   business_id uuid not null references public.businesses (id) on delete cascade,
   lead_id uuid not null references public.leads (id) on delete cascade,
@@ -27,29 +41,23 @@ create table public.follow_ups (
   campaign text,
   template_name text,
   body text,
-  -- The paid_at instant of the order this follow-up belongs to. Null for a marketing
-  -- broadcast, which isn't tied to one order. See scheduleAfterPayment() in lib/follow-ups.ts.
   order_key timestamptz,
   created_at timestamptz not null default now()
 );
 
--- scheduleAfterPayment() relies on a unique-violation (23505) to treat "already queued
--- for this order" as a no-op instead of an error. NULLs (marketing rows) don't collide.
-create unique index follow_ups_lead_kind_order_key on public.follow_ups (lead_id, kind, order_key);
--- The daily cron job's core query: everything scheduled and due.
-create index follow_ups_due_idx on public.follow_ups (status, due_at);
-create index follow_ups_business_due_idx on public.follow_ups (business_id, due_at desc);
+create unique index if not exists follow_ups_lead_kind_order_key on public.follow_ups (lead_id, kind, order_key);
+create index if not exists follow_ups_due_idx on public.follow_ups (status, due_at);
+create index if not exists follow_ups_business_due_idx on public.follow_ups (business_id, due_at desc);
 
 alter table public.follow_ups enable row level security;
 
+drop policy if exists "Owner can read their follow-ups" on public.follow_ups;
 create policy "Owner can read their follow-ups"
   on public.follow_ups for select
   to authenticated
   using (business_id in (select public.owner_business_ids()));
 
--- sendBroadcast() queues marketing rows through the authenticated client. The extra
--- exists() check stops a row being filed under an owned business_id but someone else's
--- lead_id.
+drop policy if exists "Owner can queue follow-ups for their business" on public.follow_ups;
 create policy "Owner can queue follow-ups for their business"
   on public.follow_ups for insert
   to authenticated
@@ -61,8 +69,7 @@ create policy "Owner can queue follow-ups for their business"
     )
   );
 
--- skipFollowUp()/sendFollowUpNow(), and runDueFollowUps() when triggered by "Run now"
--- or "Send now" (as opposed to the cron job, which uses the service role).
+drop policy if exists "Owner can update their follow-ups" on public.follow_ups;
 create policy "Owner can update their follow-ups"
   on public.follow_ups for update
   to authenticated
@@ -71,7 +78,7 @@ create policy "Owner can update their follow-ups"
 
 /* ---------- feedback ---------- */
 
-create table public.feedback (
+create table if not exists public.feedback (
   id uuid primary key default gen_random_uuid(),
   business_id uuid not null references public.businesses (id) on delete cascade,
   lead_id uuid not null references public.leads (id) on delete cascade,
@@ -80,12 +87,11 @@ create table public.feedback (
   created_at timestamptz not null default now()
 );
 
-create index feedback_business_created_idx on public.feedback (business_id, created_at desc);
+create index if not exists feedback_business_created_idx on public.feedback (business_id, created_at desc);
 
 alter table public.feedback enable row level security;
 
--- Feedback is only ever written by the webhook handler under the service role, so the
--- owner only needs read access here.
+drop policy if exists "Owner can read their feedback" on public.feedback;
 create policy "Owner can read their feedback"
   on public.feedback for select
   to authenticated
