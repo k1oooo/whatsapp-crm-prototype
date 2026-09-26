@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useTransition, type FormEvent } from "react";
-import { ArrowRight, Bot, BookOpen, Landmark, Loader2 } from "lucide-react";
+import { ArrowRight, Bot, BookOpen, Landmark, Loader2, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 import { saveSettings } from "@/app/dashboard/actions";
 import { Button } from "@/components/ui/button";
@@ -23,11 +23,13 @@ export function SettingsForm({
   toneNotes,
   paymentDetails,
   testMode,
+  waConnected,
 }: {
   autoReply: boolean;
   toneNotes: string;
   paymentDetails: string;
   testMode: boolean;
+  waConnected: boolean;
 }) {
   const [pending, start] = useTransition();
 
@@ -43,6 +45,30 @@ export function SettingsForm({
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-6">
+      <Card>
+        <CardHeader className="flex-row items-start gap-4">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
+            <MessageCircle className="size-5" aria-hidden />
+          </span>
+          <div className="flex-1">
+            <CardTitle>WhatsApp connection</CardTitle>
+            <CardDescription className="mt-1">
+              {waConnected
+                ? "Connected. Update the number or webhook here."
+                : "Not connected yet — no messages will come in until this is set up."}
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Button asChild variant="outline">
+            <Link href="/dashboard/settings/whatsapp">
+              {waConnected ? "Manage connection" : "Connect WhatsApp"}
+              <ArrowRight />
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader className="flex-row items-start gap-4">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">

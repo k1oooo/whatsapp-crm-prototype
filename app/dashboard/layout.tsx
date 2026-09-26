@@ -1,9 +1,11 @@
+import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { MessageCircleWarning } from "lucide-react";
 import { DashboardFrame } from "@/components/app/dashboard-frame";
 import { MobileNav } from "@/components/app/nav";
 import { Sidebar } from "@/components/app/sidebar";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
 import { LEAD_COLUMNS, displayName, isCold, type ChatSummary, type Lead } from "@/lib/leads";
 
@@ -14,28 +16,49 @@ export default async function DashboardLayout({ children }: { children: React.Re
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: business } = await supabase
+  let { data: business } = await supabase
     .from("businesses")
-    .select("id, name, auto_reply, cold_after_days")
+    .select("id, name, auto_reply, cold_after_days, wa_phone_number_id")
     .eq("owner_id", user.id)
     .maybeSingle();
 
+  // First time this owner reaches the dashboard: create their business row now, named from
+  // whatever they typed on the signup form (falls back if they signed up before this existed).
   if (!business) {
-    return (
-      <main className="flex min-h-dvh items-center justify-center p-6">
-        <Card className="max-w-lg">
-          <CardHeader>
-            <CardTitle className="text-2xl">No business linked yet</CardTitle>
-            <CardDescription>
-              Add a row to the businesses table with owner_id set to your user id, then refresh.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <code className="rounded-md bg-muted px-2 py-1 text-sm break-all">{user.id}</code>
-          </CardContent>
-        </Card>
-      </main>
-    );
+    const name = (user.user_metadata?.business_name as string | undefined)?.trim() || "My business";
+    const { data: created, error } = await supabase
+      .from("businesses")
+      .insert({ owner_id: user.id, name })
+      .select("id, name, auto_reply, cold_after_days, wa_phone_number_id")
+      .single();
+
+    if (created) {
+      business = created;
+    } else if (error?.code === "23505") {
+      // Another request (double click, two tabs) created it a moment ago.
+      const { data: again } = await supabase
+        .from("businesses")
+        .select("id, name, auto_reply, cold_after_days, wa_phone_number_id")
+        .eq("owner_id", user.id)
+        .maybeSingle();
+      business = again ?? null;
+    }
+
+    if (!business) {
+      return (
+        <main className="flex min-h-dvh items-center justify-center p-6">
+          <Card className="max-w-lg">
+            <CardHeader>
+              <CardTitle className="text-2xl">Could not set up your business</CardTitle>
+              <CardDescription>
+                Something went wrong creating your workspace. Refresh the page, or contact support
+                if this keeps happening.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </main>
+      );
+    }
   }
 
   const { data: leadRows } = await supabase
@@ -94,6 +117,15 @@ export default async function DashboardLayout({ children }: { children: React.Re
         defaultCollapsed={sidebarCollapsed}
       />
       <div className="flex min-w-0 flex-1 flex-col">
+        {!business.wa_phone_number_id && (
+          <Link
+            href="/dashboard/settings/whatsapp"
+            className="flex shrink-0 items-center justify-center gap-2 bg-warning px-4 py-2 text-center text-sm font-medium text-warning-foreground hover:underline"
+          >
+            <MessageCircleWarning className="size-4 shrink-0" aria-hidden />
+            Connect WhatsApp to start receiving customer messages
+          </Link>
+        )}
         <main className="min-h-0 flex-1">
           <DashboardFrame chats={chats}>{children}</DashboardFrame>
         </main>

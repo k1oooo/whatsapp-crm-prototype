@@ -12,7 +12,7 @@ export default async function SettingsPage() {
 
   const { data: business } = await supabase
     .from("businesses")
-    .select("name, auto_reply, tone_notes, payment_details")
+    .select("name, auto_reply, tone_notes, payment_details, wa_phone_number_id")
     .eq("owner_id", user.id)
     .maybeSingle();
   if (!business) redirect("/dashboard");
@@ -30,6 +30,7 @@ export default async function SettingsPage() {
         toneNotes={business.tone_notes ?? ""}
         paymentDetails={business.payment_details ?? ""}
         testMode={sendMode() === "dry"}
+        waConnected={!!business.wa_phone_number_id}
       />
     </div>
   );

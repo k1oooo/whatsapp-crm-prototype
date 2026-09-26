@@ -2,16 +2,9 @@
 
 ## 1. Supabase (free tier)
 1. supabase.com > organization "Vici" > New project (Singapore region).
-2. SQL Editor > run `supabase/migrations/0001_init.sql`, then `0002_quote_and_locks.sql`, then `0003_pending_decision.sql`, then `0004_auto_reply.sql`, then `0005_handoff_note.sql`, then `0006_order_flow.sql`, then `0007_follow_ups.sql`, then `0008_knowledge_base.sql`. Run each file once, in order. If you see "already exists", that file was already run, so skip it.
-3. Authentication > Users > Add user (your email + a password). Copy the user id.
-4. Insert your business row:
-
-```sql
-insert into businesses (owner_id, name, wa_phone_number_id, wa_owner_number)
-values ('YOUR-USER-ID', 'Test Bakery', 'TEST_PHONE_NUMBER_ID', '60123456789');
-```
-
-5. Settings > API Keys: put the URL, publishable key and secret key in `.env.local` (names are in `.env.example`).
+2. SQL Editor > run `supabase/migrations/0001_init.sql`, then `0002_quote_and_locks.sql`, then `0003_pending_decision.sql`, then `0004_auto_reply.sql`, then `0005_handoff_note.sql`, then `0006_order_flow.sql`, then `0007_follow_ups.sql`, then `0008_knowledge_base.sql`, then `0009_self_serve_signup.sql`, then `0010_per_business_wa_credentials.sql`. Run each file once, in order. If you see "already exists", that file was already run, so skip it.
+3. Settings > API Keys: put the URL, publishable key and secret key in `.env.local` (names are in `.env.example`).
+4. Open the app, go to `/signup`, and create your account with your business name. The business row and dashboard are created for you — no SQL Editor step needed. (Auth > Providers > Email: if "Confirm email" is on, you'll get a confirmation link first; the business is still created the first time you land on the dashboard.)
 
 ## 2. Free AI (optional, mock mode works without it)
 1. Get a key at aistudio.google.com (no credit card).
@@ -57,4 +50,10 @@ Dashboard > Follow-ups > Automations: turn on "Ask for feedback" and/or "Remind 
 4. A daily job sends due follow-ups at 10am Malaysia time. On Vercel it is configured in `vercel.json` (set `CRON_SECRET` in the project's environment variables). While testing locally, use the "Send what is due" button.
 
 ## 8. Connect real WhatsApp later
-Meta developer app > WhatsApp > callback URL `https://YOUR-URL/api/whatsapp/webhook`, verify token = `WHATSAPP_VERIFY_TOKEN`, subscribe to `messages` (and `smb_message_echoes` for coexistence numbers). Put the real app secret in `WHATSAPP_APP_SECRET` and the real phone number id in your business row.
+Dashboard > Settings > "Connect WhatsApp" shows your webhook URL and lets you save the phone number ID from the dashboard instead of editing the database directly. You still need to, in your Meta developer app > WhatsApp > Configuration: paste that callback URL, set a verify token, and subscribe to `messages` (and `smb_message_echoes` for coexistence numbers). Set `WHATSAPP_SEND_MODE=live` on the deployment to actually send messages.
+
+There are two ways to hold the credentials (verify token, app secret, access token):
+- **Shared** (default, simplest for one operator running several small businesses under one Meta app): set `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET`, and `WHATSAPP_ACCESS_TOKEN` once as deployment environment variables. Every business without its own credentials uses these.
+- **Per-business** (each business brings its own Meta app/WABA): in "Connect WhatsApp", fill in that business's own verify token, app secret, and access token. That business's messages are then signed, verified, and sent using only its own credentials — never the shared ones, and never visible to any other business.
+
+A business can mix and match (e.g. its own access token but the shared verify token). Whichever the webhook payload's phone number ID resolves to is what gets used, checked before the shared default.

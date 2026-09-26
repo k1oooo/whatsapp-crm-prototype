@@ -24,6 +24,7 @@ interface BusinessInfo {
   auto_reply: boolean;
   business_facts: string | null;
   tone_notes: string | null;
+  wa_access_token: string | null;
 }
 
 // After the owner replies from their own phone, the assistant stays quiet in that chat for a while.
@@ -67,8 +68,9 @@ export interface WaWebhookPayload {
 
 /* ---------- Signature verification ---------- */
 
-export function verifySignature(rawBody: string, header: string | null): boolean {
-  const secret = process.env.WHATSAPP_APP_SECRET;
+// The secret is resolved by the caller: it may be a business's own wa_app_secret (their own Meta
+// app), or the deployment's shared WHATSAPP_APP_SECRET for businesses that don't have their own.
+export function verifySignature(rawBody: string, header: string | null, secret: string | undefined): boolean {
   if (!secret || !header?.startsWith("sha256=")) return false;
 
   const expected = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
@@ -411,7 +413,9 @@ async function autoReply(db: SupabaseClient, business: BusinessInfo, leadId: str
 
   let sentId: string;
   try {
-    sentId = (await sendWhatsAppText(business.wa_phone_number_id, lead.wa_contact_number, result.reply)).id;
+    sentId = (
+      await sendWhatsAppText(business.wa_phone_number_id, lead.wa_contact_number, result.reply, business.wa_access_token)
+    ).id;
   } catch (err) {
     console.error("Auto-reply send failed", leadId, err);
     await handOver("unsure", "The assistant's reply could not be sent. Please answer the customer.");
@@ -482,7 +486,7 @@ async function sayToCustomer(
   to: string,
   body: string,
 ): Promise<void> {
-  const sent = await sendWhatsAppText(business.wa_phone_number_id, to, body);
+  const sent = await sendWhatsAppText(business.wa_phone_number_id, to, body, business.wa_access_token);
   const now = new Date().toISOString();
   await db.from("messages").insert({
     lead_id: leadId,
@@ -624,7 +628,7 @@ export async function processPayload(db: SupabaseClient, payload: WaWebhookPaylo
 
       const { data: business } = await db
         .from("businesses")
-        .select("id, wa_phone_number_id, auto_reply, business_facts, tone_notes")
+        .select("id, wa_phone_number_id, auto_reply, business_facts, tone_notes, wa_access_token")
         .eq("wa_phone_number_id", phoneNumberId)
         .maybeSingle();
       if (!business) {

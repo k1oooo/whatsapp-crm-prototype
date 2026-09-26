@@ -131,7 +131,7 @@ async function processOne(db: SupabaseClient, id: string): Promise<Outcome> {
     .single();
   const { data: business } = await db
     .from("businesses")
-    .select("id, wa_phone_number_id, follow_up_settings")
+    .select("id, wa_phone_number_id, follow_up_settings, wa_access_token")
     .eq("id", fu.business_id)
     .single();
   if (!lead || !business) {
@@ -185,13 +185,14 @@ async function processOne(db: SupabaseClient, id: string): Promise<Outcome> {
   let sent;
   try {
     sent = inWindow
-      ? await sendWhatsAppText(business.wa_phone_number_id, lead.wa_contact_number, text)
+      ? await sendWhatsAppText(business.wa_phone_number_id, lead.wa_contact_number, text, business.wa_access_token)
       : await sendWhatsAppTemplate(
           business.wa_phone_number_id,
           lead.wa_contact_number,
           templateName,
           settings.language,
           templateParams(source, vars),
+          business.wa_access_token,
         );
   } catch (err) {
     await finish("failed", err instanceof Error ? err.message.slice(0, 300) : "Could not send");

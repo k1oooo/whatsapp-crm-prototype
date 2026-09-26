@@ -118,6 +118,55 @@ export async function updateLead(leadId: string, _prev: FormState, formData: For
   return { ok: true };
 }
 
+/** Save the WhatsApp phone number this business sends and receives from. */
+export async function saveWhatsAppConnection(_prev: FormState, formData: FormData): Promise<FormState> {
+  void _prev;
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Please sign in again." };
+
+  const phoneNumberId = String(formData.get("wa_phone_number_id") ?? "").trim();
+  const ownerNumber = String(formData.get("wa_owner_number") ?? "").trim();
+  if (!phoneNumberId) return { error: "Add the phone number ID from Meta's WhatsApp Manager." };
+
+  const update: Record<string, string | null> = {
+    wa_phone_number_id: phoneNumberId,
+    wa_owner_number: ownerNumber || null,
+  };
+
+  // Secret fields are write-only in the UI (never pre-filled with the real value), so a blank
+  // box means "leave it as it is", not "clear it" — only an explicit checkbox does that.
+  const own = (key: string) => {
+    if (formData.get(`clear_${key}`) === "on") return null;
+    const v = String(formData.get(key) ?? "").trim();
+    return v || undefined;
+  };
+  const appSecret = own("wa_app_secret");
+  const accessToken = own("wa_access_token");
+  const verifyToken = own("wa_verify_token");
+  if (appSecret !== undefined) update.wa_app_secret = appSecret;
+  if (accessToken !== undefined) update.wa_access_token = accessToken;
+  if (verifyToken !== undefined) update.wa_verify_token = verifyToken;
+
+  const { error } = await supabase.from("businesses").update(update).eq("owner_id", user.id);
+
+  if (error) {
+    // The phone number ID and verify token must each be unique across businesses.
+    if (error.code === "23505" && error.message.includes("wa_verify_token")) {
+      return { error: "That verify token is already used by another business. Pick a different one." };
+    }
+    if (error.code === "23505") {
+      return { error: "That phone number is already connected to another business." };
+    }
+    return { error: "Could not save. Try again." };
+  }
+
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
 /** Save the auto-reply switch and the facts the assistant may use. */
 export async function saveSettings(_prev: FormState, formData: FormData): Promise<FormState> {
   void _prev;
@@ -152,7 +201,7 @@ type Db = Awaited<ReturnType<typeof createClient>>;
 
 interface Context {
   lead: Lead & { business_id: string };
-  business: { wa_phone_number_id: string; tone_notes: string | null };
+  business: { wa_phone_number_id: string; tone_notes: string | null; wa_access_token: string | null };
   messages: ChatMessage[];
 }
 
@@ -168,7 +217,7 @@ async function loadContext(supabase: Db, leadId: string): Promise<Context | stri
 
   const { data: business } = await supabase
     .from("businesses")
-    .select("wa_phone_number_id, tone_notes")
+    .select("wa_phone_number_id, tone_notes, wa_access_token")
     .eq("id", lead.business_id)
     .single();
   if (!business?.wa_phone_number_id) return "Could not find the WhatsApp number to send from.";
@@ -209,7 +258,12 @@ async function deliver(
 ): Promise<FormState> {
   let sent;
   try {
-    sent = await sendWhatsAppText(ctx.business.wa_phone_number_id, ctx.lead.wa_contact_number, body);
+    sent = await sendWhatsAppText(
+      ctx.business.wa_phone_number_id,
+      ctx.lead.wa_contact_number,
+      body,
+      ctx.business.wa_access_token,
+    );
   } catch (err) {
     console.error("Send failed", err);
     return {
