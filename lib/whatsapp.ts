@@ -212,8 +212,11 @@ export async function refreshLead(db: SupabaseClient, leadId: string): Promise<v
     .from("messages")
     .select("direction, body, sent_at")
     .eq("lead_id", leadId)
-    .order("sent_at", { ascending: false })
+    // created_at (our own clock) sorts first: WhatsApp's inbound sent_at is whole seconds, so
+    // sorting by sent_at first can put an outbound reply's millisecond timestamp ahead of a
+    // customer message that actually landed a moment later in the same second.
     .order("created_at", { ascending: false })
+    .order("sent_at", { ascending: false })
     .limit(30);
 
   const messages: ChatMessage[] = [...(rows ?? [])]
@@ -254,10 +257,13 @@ async function autoReply(db: SupabaseClient, business: BusinessInfo, leadId: str
 
   const { data: rows } = await db
     .from("messages")
-    .select("direction, body, sent_at, source")
+    .select("direction, body, sent_at, created_at, source")
     .eq("lead_id", leadId)
-    .order("sent_at", { ascending: false })
+    // created_at first, for the same reason as refreshLead above: it keeps "newest" meaning
+    // what was actually most recent, instead of whichever row has the highest-resolution
+    // sent_at.
     .order("created_at", { ascending: false })
+    .order("sent_at", { ascending: false })
     .limit(30);
 
   const newest = rows?.[0];
@@ -376,12 +382,16 @@ async function autoReply(db: SupabaseClient, business: BusinessInfo, leadId: str
   }
 
   // Someone else (the owner, or an earlier webhook) may have answered in the meantime.
+  // Compare against created_at, not sent_at: WhatsApp's inbound timestamp is whole seconds,
+  // but our own outbound sent_at has millisecond precision, so a bot reply and the customer's
+  // next message landing in the same second could otherwise make an earlier reply look "newer"
+  // than the message we're about to answer, and this reply would be dropped silently.
   const { data: newer } = await db
     .from("messages")
     .select("id")
     .eq("lead_id", leadId)
     .eq("direction", "out")
-    .gt("sent_at", newest.sent_at)
+    .gt("created_at", newest.created_at)
     .limit(1);
   if (newer && newer.length > 0) return true;
 
@@ -519,8 +529,8 @@ async function handleFollowUpReply(db: SupabaseClient, business: BusinessInfo, l
     .from("messages")
     .select("direction, body, sent_at, source")
     .eq("lead_id", leadId)
-    .order("sent_at", { ascending: false })
     .order("created_at", { ascending: false })
+    .order("sent_at", { ascending: false })
     .limit(12);
   const newest = rows?.[0];
   if (!newest || newest.direction !== "in") return false;

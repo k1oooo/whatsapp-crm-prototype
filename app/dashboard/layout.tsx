@@ -1,13 +1,16 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { MessageCircleWarning } from "lucide-react";
+import { FlaskConical, MessageCircleWarning, Radio } from "lucide-react";
 import { DashboardFrame } from "@/components/app/dashboard-frame";
 import { MobileNav } from "@/components/app/nav";
 import { Sidebar } from "@/components/app/sidebar";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
 import { LEAD_COLUMNS, displayName, isCold, type ChatSummary, type Lead } from "@/lib/leads";
+import { sendMode } from "@/lib/send";
+
+const BUSINESS_COLUMNS = "id, name, auto_reply, cold_after_days, wa_phone_number_id, wa_access_token";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
@@ -18,7 +21,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   let { data: business } = await supabase
     .from("businesses")
-    .select("id, name, auto_reply, cold_after_days, wa_phone_number_id")
+    .select(BUSINESS_COLUMNS)
     .eq("owner_id", user.id)
     .maybeSingle();
 
@@ -29,7 +32,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     const { data: created, error } = await supabase
       .from("businesses")
       .insert({ owner_id: user.id, name })
-      .select("id, name, auto_reply, cold_after_days, wa_phone_number_id")
+      .select(BUSINESS_COLUMNS)
       .single();
 
     if (created) {
@@ -38,7 +41,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       // Another request (double click, two tabs) created it a moment ago.
       const { data: again } = await supabase
         .from("businesses")
-        .select("id, name, auto_reply, cold_after_days, wa_phone_number_id")
+        .select(BUSINESS_COLUMNS)
         .eq("owner_id", user.id)
         .maybeSingle();
       business = again ?? null;
@@ -125,6 +128,21 @@ export default async function DashboardLayout({ children }: { children: React.Re
             <MessageCircleWarning className="size-4 shrink-0" aria-hidden />
             Connect WhatsApp to start receiving customer messages
           </Link>
+        )}
+        {/* Once WhatsApp is connected, always show whether messages actually go out, so
+            nobody is surprised either way: thinking the bot is live when it's still a
+            sandbox, or not realising a deploy just switched them to sending for real. */}
+        {business.wa_phone_number_id && sendMode(business.wa_access_token) === "dry" && (
+          <div className="flex shrink-0 items-center justify-center gap-2 bg-info px-4 py-2 text-center text-sm font-medium text-info-foreground">
+            <FlaskConical className="size-4 shrink-0" aria-hidden />
+            Test mode: WhatsApp messages are not being sent to customers
+          </div>
+        )}
+        {business.wa_phone_number_id && sendMode(business.wa_access_token) === "live" && (
+          <div className="flex shrink-0 items-center justify-center gap-2 bg-success px-4 py-2 text-center text-sm font-medium text-success-foreground">
+            <Radio className="size-4 shrink-0" aria-hidden />
+            Live: messages are being sent to real customers on WhatsApp
+          </div>
         )}
         <main className="min-h-0 flex-1">
           <DashboardFrame chats={chats}>{children}</DashboardFrame>
