@@ -1,6 +1,7 @@
-DO $$ 
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='leads' AND column_name='handoff_note') THEN
-    ALTER TABLE public.leads ADD COLUMN handoff_note text;
-  END IF;
-END $$;
+-- 0005_handoff_note.sql
+-- The one-line note the assistant leaves for the owner when it escalates.
+
+alter table public.leads
+  add column if not exists handoff_note text;
+
+notify pgrst, 'reload schema';

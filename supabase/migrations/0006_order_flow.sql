@@ -1,14 +1,13 @@
-DO $$ 
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='leads' AND column_name='order_status') THEN
-    ALTER TABLE public.leads ADD COLUMN order_status text check (order_status is null or order_status in ('none', 'collecting', 'awaiting_confirmation', 'confirmed', 'paid'));
-  END IF;
+-- 0006_order_flow.sql
+-- Order state on the lead, and the owner's bank details (kept separate from the knowledge base
+-- so the AI can never paraphrase or invent them).
 
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='leads' AND column_name='order_summary') THEN
-    ALTER TABLE public.leads ADD COLUMN order_summary text;
-  END IF;
+alter table public.leads
+  add column if not exists order_status text
+    check (order_status is null or order_status in ('none', 'collecting', 'awaiting_confirmation', 'confirmed', 'paid')),
+  add column if not exists order_summary text;
 
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='businesses' AND column_name='payment_details') THEN
-    ALTER TABLE public.businesses ADD COLUMN payment_details text;
-  END IF;
-END $$;
+alter table public.businesses
+  add column if not exists payment_details text;
+
+notify pgrst, 'reload schema';

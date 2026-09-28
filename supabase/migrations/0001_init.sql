@@ -1,4 +1,12 @@
 -- 0001_init.sql
+-- Core schema: businesses, leads, messages, with row level security so each owner only sees
+-- their own business's data.
+--
+-- Safe to run on an empty database AND on one built from an older version of this file.
+-- "create table if not exists" never adds columns to a table that already exists, so each table
+-- is followed by "add column if not exists" for every non-key column. That is what repairs an
+-- older table (for example one missing updated_at, which the updated_at trigger below needs).
+
 create extension if not exists "pgcrypto";
 
 create or replace function public.set_updated_at()
@@ -21,6 +29,30 @@ create table if not exists public.businesses (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.businesses
+  add column if not exists wa_owner_number text,
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
+
+-- One owner = one business, and one WhatsApp number = one business. If the table already holds
+-- duplicates the unique index cannot be built, so stop with instructions instead of a bare
+-- "could not create unique index" error. Nothing is deleted automatically: removing a business
+-- also removes its leads and messages.
+do $$
+begin
+  if exists (select 1 from public.businesses group by owner_id having count(*) > 1) then
+    raise exception
+      'Some owners have more than one row in businesses. Find them with: select owner_id, count(*) from public.businesses group by owner_id having count(*) > 1; check the extra rows have no leads or messages, delete them, then run this file again.';
+  end if;
+  if exists (
+    select 1 from public.businesses where wa_phone_number_id is not null
+    group by wa_phone_number_id having count(*) > 1
+  ) then
+    raise exception
+      'Two businesses share one wa_phone_number_id. Find them with: select wa_phone_number_id, count(*) from public.businesses group by wa_phone_number_id having count(*) > 1; fix or delete the extra rows, then run this file again.';
+  end if;
+end $$;
 
 create unique index if not exists businesses_owner_id_key on public.businesses (owner_id);
 create unique index if not exists businesses_wa_phone_number_id_key on public.businesses (wa_phone_number_id);
@@ -74,6 +106,20 @@ create table if not exists public.leads (
   updated_at timestamptz not null default now()
 );
 
+alter table public.leads
+  add column if not exists name text,
+  add column if not exists need text,
+  add column if not exists budget_myr integer check (budget_myr is null or budget_myr >= 0),
+  add column if not exists deadline date,
+  add column if not exists stage text not null default 'new'
+    check (stage in ('new', 'talking', 'quoted', 'won', 'lost')),
+  add column if not exists language text,
+  add column if not exists last_message_at timestamptz,
+  add column if not exists last_inbound_at timestamptz,
+  add column if not exists last_outbound_at timestamptz,
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
+
 create unique index if not exists leads_business_contact_key on public.leads (business_id, wa_contact_number);
 create index if not exists leads_business_last_message_idx on public.leads (business_id, last_message_at desc);
 
@@ -110,6 +156,11 @@ create table if not exists public.messages (
   created_at timestamptz not null default now()
 );
 
+alter table public.messages
+  add column if not exists body text,
+  add column if not exists source text check (source in ('customer', 'owner', 'bot', 'dashboard')),
+  add column if not exists created_at timestamptz not null default now();
+
 create unique index if not exists messages_wa_message_id_key on public.messages (wa_message_id);
 create index if not exists messages_lead_sent_idx on public.messages (lead_id, sent_at, created_at);
 create index if not exists messages_business_sent_idx on public.messages (business_id, sent_at desc, created_at desc);
@@ -133,3 +184,6 @@ create policy "Owner can insert messages for their leads"
       where l.id = lead_id and l.business_id = messages.business_id
     )
   );
+
+-- Make the API pick up any table/column changes straight away.
+notify pgrst, 'reload schema';

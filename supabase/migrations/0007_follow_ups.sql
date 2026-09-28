@@ -1,30 +1,16 @@
 -- 0007_follow_ups.sql
+-- After-sale follow-ups (feedback requests, reorder reminders, marketing broadcasts), the
+-- customer's consent to receive them, and the feedback they send back.
 
-DO $$ 
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='leads' AND column_name='follow_up_consent') THEN
-    ALTER TABLE public.leads ADD COLUMN follow_up_consent text not null default 'unknown' check (follow_up_consent in ('unknown', 'yes', 'no'));
-  END IF;
+alter table public.leads
+  add column if not exists follow_up_consent text not null default 'unknown'
+    check (follow_up_consent in ('unknown', 'yes', 'no')),
+  add column if not exists consent_asked_at timestamptz,
+  add column if not exists awaiting_feedback boolean not null default false,
+  add column if not exists paid_at timestamptz;
 
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='leads' AND column_name='consent_asked_at') THEN
-    ALTER TABLE public.leads ADD COLUMN consent_asked_at timestamptz;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='leads' AND column_name='awaiting_feedback') THEN
-    ALTER TABLE public.leads ADD COLUMN awaiting_feedback boolean not null default false;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='leads' AND column_name='paid_at') THEN
-    ALTER TABLE public.leads ADD COLUMN paid_at timestamptz;
-  END IF;
-END $$;
-
-DO $$ 
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='businesses' AND column_name='follow_up_settings') THEN
-    ALTER TABLE public.businesses ADD COLUMN follow_up_settings jsonb not null default '{}'::jsonb;
-  END IF;
-END $$;
+alter table public.businesses
+  add column if not exists follow_up_settings jsonb not null default '{}'::jsonb;
 
 /* ---------- follow_ups ---------- */
 
@@ -44,6 +30,15 @@ create table if not exists public.follow_ups (
   order_key timestamptz,
   created_at timestamptz not null default now()
 );
+
+alter table public.follow_ups
+  add column if not exists sent_at timestamptz,
+  add column if not exists detail text,
+  add column if not exists campaign text,
+  add column if not exists template_name text,
+  add column if not exists body text,
+  add column if not exists order_key timestamptz,
+  add column if not exists created_at timestamptz not null default now();
 
 create unique index if not exists follow_ups_lead_kind_order_key on public.follow_ups (lead_id, kind, order_key);
 create index if not exists follow_ups_due_idx on public.follow_ups (status, due_at);
@@ -87,6 +82,11 @@ create table if not exists public.feedback (
   created_at timestamptz not null default now()
 );
 
+alter table public.feedback
+  add column if not exists rating integer check (rating is null or (rating between 1 and 5)),
+  add column if not exists comment text,
+  add column if not exists created_at timestamptz not null default now();
+
 create index if not exists feedback_business_created_idx on public.feedback (business_id, created_at desc);
 
 alter table public.feedback enable row level security;
@@ -96,3 +96,5 @@ create policy "Owner can read their feedback"
   on public.feedback for select
   to authenticated
   using (business_id in (select public.owner_business_ids()));
+
+notify pgrst, 'reload schema';

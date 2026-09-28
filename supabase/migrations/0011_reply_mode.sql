@@ -17,6 +17,12 @@ create table if not exists public.draft_replies (
   created_at timestamptz not null default now()
 );
 
+alter table public.draft_replies
+  add column if not exists order_status text
+    check (order_status in ('none', 'collecting', 'awaiting_confirmation', 'confirmed', 'paid')),
+  add column if not exists order_summary text,
+  add column if not exists created_at timestamptz not null default now();
+
 create index if not exists draft_replies_business_idx on public.draft_replies (business_id);
 
 alter table public.draft_replies enable row level security;
@@ -35,3 +41,5 @@ create policy "Owner can delete their draft replies"
 
 -- Insert/update come from the webhook handler using the service role, which bypasses RLS, so
 -- there is no owner-facing insert/update policy: the dashboard only ever reads and deletes.
+
+notify pgrst, 'reload schema';

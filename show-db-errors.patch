@@ -1,0 +1,35 @@
+diff --git a/app/dashboard/actions.ts b/app/dashboard/actions.ts
+index e4b4803..cfb2670 100644
+--- a/app/dashboard/actions.ts
++++ b/app/dashboard/actions.ts
+@@ -167,6 +167,18 @@ export async function saveWhatsAppConnection(_prev: FormState, formData: FormDat
+   return { ok: true };
+ }
+ 
++/**
++ * Turn a Postgres/PostgREST error into something an owner (or whoever is setting this up) can act
++ * on. A missing column or table almost always means a migration was skipped, so say that plainly
++ * instead of a generic "try again" that never gets better.
++ */
++function dbErrorMessage(prefix: string, error: { code?: string; message: string }): string {
++  if (error.code === "42703" || error.code === "PGRST204" || error.code === "42P01" || error.code === "PGRST205") {
++    return `${prefix}: the database is missing something this version needs (${error.message}). Run the latest supabase/migrations files in order.`;
++  }
++  return `${prefix}: ${error.message}`;
++}
++
+ /** Save the auto-reply switch and the facts the assistant may use. */
+ export async function saveSettings(_prev: FormState, formData: FormData): Promise<FormState> {
+   void _prev;
+@@ -401,7 +413,10 @@ export async function toggleAutoReply(next: boolean): Promise<FormState> {
+   if (!user) return { error: "Please sign in again." };
+ 
+   const { error } = await supabase.from("businesses").update({ auto_reply: next }).eq("owner_id", user.id);
+-  if (error) return { error: "Could not change the assistant. Try again." };
++  if (error) {
++    console.error("toggleAutoReply failed", error.code, error.message);
++    return { error: dbErrorMessage("Could not change the assistant", error) };
++  }
+ 
+   revalidatePath("/dashboard", "layout");
+   return { ok: true };

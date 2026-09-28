@@ -1,18 +1,11 @@
-DO $$ 
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='businesses' AND column_name='auto_reply') THEN
-    ALTER TABLE public.businesses ADD COLUMN auto_reply boolean not null default false;
-  END IF;
+-- 0004_auto_reply.sql
+-- The automatic assistant's on/off switch per business, and the settings it reads: tone notes,
+-- the legacy freeform facts box (see 0008), and after how many quiet days a lead is "cold".
 
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='businesses' AND column_name='business_facts') THEN
-    ALTER TABLE public.businesses ADD COLUMN business_facts text;
-  END IF;
+alter table public.businesses
+  add column if not exists auto_reply boolean not null default false,
+  add column if not exists business_facts text,
+  add column if not exists tone_notes text,
+  add column if not exists cold_after_days integer not null default 3 check (cold_after_days > 0);
 
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='businesses' AND column_name='tone_notes') THEN
-    ALTER TABLE public.businesses ADD COLUMN tone_notes text;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='businesses' AND column_name='cold_after_days') THEN
-    ALTER TABLE public.businesses ADD COLUMN cold_after_days integer not null default 3 check (cold_after_days > 0);
-  END IF;
-END $$;
+notify pgrst, 'reload schema';

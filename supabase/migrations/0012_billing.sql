@@ -16,6 +16,17 @@ create table if not exists public.subscriptions (
   updated_at timestamptz not null default now()
 );
 
+alter table public.subscriptions
+  add column if not exists stripe_customer_id text,
+  add column if not exists stripe_subscription_id text,
+  add column if not exists plan text not null default 'standard',
+  add column if not exists status text not null default 'trialing'
+    check (status in ('trialing', 'active', 'past_due', 'canceled', 'incomplete')),
+  add column if not exists trial_ends_at timestamptz,
+  add column if not exists current_period_end timestamptz,
+  add column if not exists created_at timestamptz not null default now(),
+  add column if not exists updated_at timestamptz not null default now();
+
 create unique index if not exists subscriptions_stripe_customer_id_key
   on public.subscriptions (stripe_customer_id) where stripe_customer_id is not null;
 create unique index if not exists subscriptions_stripe_subscription_id_key
@@ -65,3 +76,5 @@ create trigger businesses_start_trial
 alter table public.leads drop constraint if exists leads_human_reason_check;
 alter table public.leads add constraint leads_human_reason_check
   check (human_reason is null or human_reason in ('discount', 'stock', 'payment', 'unsure', 'feedback', 'billing'));
+
+notify pgrst, 'reload schema';
