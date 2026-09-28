@@ -1,6 +1,6 @@
 import type Stripe from "stripe";
 import { describe, expect, it, vi } from "vitest";
-import { mapStatus, syncSubscription } from "@/lib/stripe-sync";
+import { mapStatus, reconcileCheckoutSession, syncSubscription } from "@/lib/stripe-sync";
 import { isSubscriptionActive, type SubscriptionInfo } from "@/lib/subscriptions";
 import { createFakeSupabase } from "@/test/fake-supabase";
 
@@ -107,6 +107,53 @@ describe("syncSubscription", () => {
     (sub as unknown as { items: { data: unknown[] } }).items = { data: [] };
     await syncSubscription(db, sub);
     expect(db._db.subscriptions[0].current_period_end).toBeNull();
+    expect(db._db.subscriptions[0].status).toBe("active");
+  });
+});
+
+describe("reconcileCheckoutSession", () => {
+  const session = (over: Partial<Stripe.Checkout.Session> = {}) =>
+    ({ client_reference_id: "biz-1", status: "complete", subscription: "sub_1", ...over }) as Stripe.Checkout.Session;
+
+  const reader = (s: Stripe.Checkout.Session, sub: Stripe.Subscription = stripeSub()) => ({
+    checkout: { sessions: { retrieve: async () => s } },
+    subscriptions: { retrieve: async () => sub },
+  });
+
+  it("activates the business straight from Stripe, without waiting for the webhook", async () => {
+    const db = dbWithTrial();
+    const ok = await reconcileCheckoutSession(db, reader(session()), "cs_1", "biz-1");
+    expect(ok).toBe(true);
+    expect(db._db.subscriptions[0].status).toBe("active");
+    expect(isSubscriptionActive(db._db.subscriptions[0] as unknown as SubscriptionInfo)).toBe(true);
+  });
+
+  it("refuses a checkout session that was created for a different business", async () => {
+    const db = dbWithTrial();
+    const ok = await reconcileCheckoutSession(db, reader(session({ client_reference_id: "someone-else" })), "cs_1", "biz-1");
+    expect(ok).toBe(false);
+    expect(db._db.subscriptions[0].status).toBe("trialing");
+  });
+
+  it("refuses a subscription whose metadata points at a different business", async () => {
+    const db = dbWithTrial();
+    const ok = await reconcileCheckoutSession(db, reader(session(), stripeSub({ businessId: "someone-else" })), "cs_1", "biz-1");
+    expect(ok).toBe(false);
+    expect(db._db.subscriptions[0].status).toBe("trialing");
+  });
+
+  it("does nothing for a checkout that was abandoned", async () => {
+    const db = dbWithTrial();
+    const ok = await reconcileCheckoutSession(db, reader(session({ status: "open", subscription: null })), "cs_1", "biz-1");
+    expect(ok).toBe(false);
+    expect(db._db.subscriptions[0].status).toBe("trialing");
+  });
+
+  it("is harmless to run twice", async () => {
+    const db = dbWithTrial();
+    await reconcileCheckoutSession(db, reader(session()), "cs_1", "biz-1");
+    await reconcileCheckoutSession(db, reader(session()), "cs_1", "biz-1");
+    expect(db._db.subscriptions).toHaveLength(1);
     expect(db._db.subscriptions[0].status).toBe("active");
   });
 });

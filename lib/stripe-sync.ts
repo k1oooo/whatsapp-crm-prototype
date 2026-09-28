@@ -56,3 +56,40 @@ export async function syncSubscription(admin: SupabaseClient, sub: Stripe.Subscr
   );
   if (error) console.error("Could not save subscription from webhook", sub.id, error.message);
 }
+
+/** The two Stripe calls reconcileCheckoutSession needs, so tests can stand in for Stripe. */
+export interface StripeReader {
+  checkout: { sessions: { retrieve(id: string): Promise<Stripe.Checkout.Session> } };
+  subscriptions: { retrieve(id: string): Promise<Stripe.Subscription> };
+}
+
+/**
+ * When the owner lands back from Stripe Checkout, ask Stripe directly what happened instead of
+ * waiting for the webhook, which can be seconds late (or, in local development, never arrive
+ * unless the Stripe CLI is forwarding it). The webhook stays the source of truth for everything
+ * after this; running both is harmless because syncing the same subscription twice is a no-op.
+ *
+ * Returns true only when a paid-for subscription belonging to THIS business was saved. The
+ * session id comes from the browser, so it is never trusted on its own: it must have been
+ * created for this business (client_reference_id) and its subscription must carry this
+ * business's id, otherwise someone could feed in another account's session.
+ */
+export async function reconcileCheckoutSession(
+  admin: SupabaseClient,
+  client: StripeReader,
+  sessionId: string,
+  businessId: string,
+): Promise<boolean> {
+  const session = await client.checkout.sessions.retrieve(sessionId);
+  if (session.client_reference_id !== businessId) return false;
+  if (session.status !== "complete") return false;
+
+  const subscriptionId = typeof session.subscription === "string" ? session.subscription : session.subscription?.id;
+  if (!subscriptionId) return false;
+
+  const sub = await client.subscriptions.retrieve(subscriptionId);
+  if (sub.metadata?.business_id !== businessId) return false;
+
+  await syncSubscription(admin, sub);
+  return true;
+}

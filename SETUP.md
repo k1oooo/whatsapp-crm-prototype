@@ -76,4 +76,6 @@ Without the first two, the Billing page says billing is not set up and the Subsc
 
 Test locally: run `stripe listen --forward-to localhost:3000/api/stripe/webhook`, use its `whsec_...` as `STRIPE_WEBHOOK_SECRET`, then check out with card `4242 4242 4242 4242`. To test the pause without waiting 14 days, set the `subscriptions.trial_ends_at` for your business to a past date in the Supabase table editor (status `trialing`).
 
+After checkout, the app asks Stripe directly what happened (`/dashboard/billing/return`), so the Billing page is right straight away even if the webhook hasn't arrived, or isn't running locally. The webhook is still what keeps things correct afterwards: renewals, failed payments, and cancellations only reach the app through it, so it must be set up before you go live.
+
 Note: the trial is tracked by this app, not by Stripe. Subscribing charges immediately; it does not carry over remaining trial days.
