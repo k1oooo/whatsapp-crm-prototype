@@ -1,18 +1,32 @@
 import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { CreditCard, FlaskConical, MessageCircleWarning, Radio } from "lucide-react";
-import { DashboardFrame } from "@/components/app/dashboard-frame";
+import {
+  CreditCard,
+  FlaskConical,
+  MessageCircleWarning,
+  Radio,
+} from "lucide-react";
 import { MobileNav } from "@/components/app/nav";
 import { Sidebar } from "@/components/app/sidebar";
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
 import { getOrCreateBusiness } from "@/lib/business";
-import { LEAD_COLUMNS, displayName, isCold, type ChatSummary, type Lead } from "@/lib/leads";
 import { sendMode } from "@/lib/send";
-import { isSubscriptionActive, subscriptionBlockedNote, trialDaysLeft, type SubscriptionInfo } from "@/lib/subscriptions";
+import {
+  isSubscriptionActive,
+  subscriptionBlockedNote,
+  trialDaysLeft,
+  type SubscriptionInfo,
+} from "@/lib/subscriptions";
 
-const BUSINESS_COLUMNS = "id, name, auto_reply, cold_after_days, wa_phone_number_id, wa_access_token";
+const BUSINESS_COLUMNS =
+  "id, name, auto_reply, cold_after_days, wa_phone_number_id, wa_access_token";
 
 interface DashboardBusiness {
   id: string;
@@ -23,24 +37,34 @@ interface DashboardBusiness {
   wa_access_token: string | null;
 }
 
-export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
+export default async function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const business = await getOrCreateBusiness<DashboardBusiness>(supabase, user, BUSINESS_COLUMNS);
+  const business = await getOrCreateBusiness<DashboardBusiness>(
+    supabase,
+    user,
+    BUSINESS_COLUMNS,
+  );
 
   if (!business) {
     return (
       <main className="flex min-h-dvh items-center justify-center p-6">
         <Card className="max-w-lg">
           <CardHeader>
-            <CardTitle className="text-2xl">Could not set up your business</CardTitle>
+            <CardTitle className="text-2xl">
+              Could not set up your business
+            </CardTitle>
             <CardDescription>
-              Something went wrong creating your workspace. Refresh the page, or contact support
-              if this keeps happening.
+              Something went wrong creating your workspace. Refresh the page, or
+              contact support if this keeps happening.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -48,23 +72,14 @@ export default async function DashboardLayout({ children }: { children: React.Re
     );
   }
 
-  const { data: leadRows } = await supabase
+  // Optimized: We only need the exact count for the navigation badges in the sidebar
+  const { count: needsYouCount } = await supabase
     .from("leads")
-    .select(LEAD_COLUMNS)
+    .select("id", { count: "exact", head: true })
     .eq("business_id", business.id)
-    .order("last_message_at", { ascending: false, nullsFirst: false });
-  const leads = (leadRows ?? []) as unknown as Lead[];
+    .eq("pending_decision", true);
 
-  // The newest message in each chat, for the preview line in the list.
-  const { data: msgRows } = await supabase
-    .from("messages")
-    .select("lead_id, direction, body, sent_at, source")
-    .eq("business_id", business.id)
-    .order("sent_at", { ascending: false })
-    .order("created_at", { ascending: false })
-    .limit(600);
-  const last = new Map<string, { direction: "in" | "out"; body: string | null; sent_at: string; source: string | null }>();
-  for (const m of msgRows ?? []) if (!last.has(m.lead_id)) last.set(m.lead_id, m);
+  const needsYou = needsYouCount ?? 0;
 
   const { data: subRow } = await supabase
     .from("subscriptions")
@@ -73,44 +88,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
     .maybeSingle();
   const subscription = (subRow as SubscriptionInfo | null) ?? null;
   const subscriptionActive = isSubscriptionActive(subscription);
-  // Warn a few days ahead, only for a trial nobody has converted, so the pause is never a surprise.
   const trialDaysLeftCount = trialDaysLeft(subscription);
 
-  // Which chats have a drafted reply waiting for approval (reply_mode "approve"). Harmless to
-  // always look: no rows exist at all while reply_mode is "auto".
-  const { data: draftRows } = await supabase.from("draft_replies").select("lead_id").eq("business_id", business.id);
-  const drafted = new Set((draftRows ?? []).map((d) => d.lead_id));
-
-  const chats: ChatSummary[] = leads
-    .map((lead) => {
-      const m = last.get(lead.id);
-      return {
-        id: lead.id,
-        name: displayName(lead),
-        number: lead.wa_contact_number,
-        hasName: !!lead.name,
-        stage: lead.stage,
-        needsYou: lead.pending_decision,
-        hasDraft: drafted.has(lead.id),
-        reason: lead.human_reason,
-        note: lead.handoff_note,
-        orderStatus: lead.order_status,
-        quote: lead.quoted_price_myr,
-        cold: isCold(lead, business.cold_after_days),
-        lastBody: m?.body ?? null,
-        lastDirection: m?.direction ?? null,
-        lastSource: m?.source ?? null,
-        lastAt: m?.sent_at ?? lead.last_message_at,
-      };
-    })
-    .sort((a, b) => {
-      if (a.needsYou !== b.needsYou) return a.needsYou ? -1 : 1;
-      if (a.hasDraft !== b.hasDraft) return a.hasDraft ? -1 : 1;
-      return (b.lastAt ?? "").localeCompare(a.lastAt ?? "");
-    });
-
-  const needsYou = chats.filter((c) => c.needsYou).length;
-  const sidebarCollapsed = (await cookies()).get("sidebar-collapsed")?.value === "1";
+  const sidebarCollapsed =
+    (await cookies()).get("sidebar-collapsed")?.value === "1";
 
   return (
     <div className="fixed inset-0 flex overflow-clip">
@@ -136,7 +117,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
             className="flex shrink-0 items-center justify-center gap-2 bg-info px-4 py-2 text-center text-sm font-medium text-info-foreground hover:underline"
           >
             <CreditCard className="size-4 shrink-0" aria-hidden />
-            Your free trial ends in {trialDaysLeftCount} {trialDaysLeftCount === 1 ? "day" : "days"}. Subscribe to keep the assistant on.
+            Your free trial ends in {trialDaysLeftCount}{" "}
+            {trialDaysLeftCount === 1 ? "day" : "days"}. Subscribe to keep the
+            assistant on.
           </Link>
         )}
         {!business.wa_phone_number_id && (
@@ -148,24 +131,24 @@ export default async function DashboardLayout({ children }: { children: React.Re
             Connect WhatsApp to start receiving customer messages
           </Link>
         )}
-        {/* Once WhatsApp is connected, always show whether messages actually go out, so
-            nobody is surprised either way: thinking the bot is live when it's still a
-            sandbox, or not realising a deploy just switched them to sending for real. */}
-        {business.wa_phone_number_id && sendMode(business.wa_access_token) === "dry" && (
-          <div className="flex shrink-0 items-center justify-center gap-2 bg-info px-4 py-2 text-center text-sm font-medium text-info-foreground">
-            <FlaskConical className="size-4 shrink-0" aria-hidden />
-            Test mode: WhatsApp messages are not being sent to customers
-          </div>
-        )}
-        {business.wa_phone_number_id && sendMode(business.wa_access_token) === "live" && (
-          <div className="flex shrink-0 items-center justify-center gap-2 bg-success px-4 py-2 text-center text-sm font-medium text-success-foreground">
-            <Radio className="size-4 shrink-0" aria-hidden />
-            Live: messages are being sent to real customers on WhatsApp
-          </div>
-        )}
-        <main className="min-h-0 flex-1">
-          <DashboardFrame chats={chats}>{children}</DashboardFrame>
-        </main>
+        {business.wa_phone_number_id &&
+          sendMode(business.wa_access_token) === "dry" && (
+            <div className="flex shrink-0 items-center justify-center gap-2 bg-info px-4 py-2 text-center text-sm font-medium text-info-foreground">
+              <FlaskConical className="size-4 shrink-0" aria-hidden />
+              Test mode: WhatsApp messages are not being sent to customers
+            </div>
+          )}
+        {business.wa_phone_number_id &&
+          sendMode(business.wa_access_token) === "live" && (
+            <div className="flex shrink-0 items-center justify-center gap-2 bg-success px-4 py-2 text-center text-sm font-medium text-success-foreground">
+              <Radio className="size-4 shrink-0" aria-hidden />
+              Live: messages are being sent to real customers on WhatsApp
+            </div>
+          )}
+
+        {/* Render children directly instead of using DashboardFrame */}
+        <main className="min-h-0 flex-1 overflow-auto">{children}</main>
+
         <MobileNav needsYou={needsYou} />
       </div>
     </div>

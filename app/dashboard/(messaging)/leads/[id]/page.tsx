@@ -6,7 +6,11 @@ import { StatusBar } from "@/components/chat/status-bar";
 import { createClient } from "@/lib/supabase/server";
 import { LEAD_COLUMNS, REASON_LABEL, type Lead } from "@/lib/leads";
 
-export default async function LeadPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function LeadPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
   const { id } = await params;
 
   const supabase = await createClient();
@@ -39,7 +43,11 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
 
   // Present only when reply_mode is "approve" and the assistant has something waiting for a
   // decision. Harmless to always look: no row exists at all in "auto" mode.
-  const { data: draftRow } = await supabase.from("draft_replies").select("body").eq("lead_id", id).maybeSingle();
+  const { data: draftRow } = await supabase
+    .from("draft_replies")
+    .select("body")
+    .eq("lead_id", id)
+    .maybeSingle();
 
   return (
     <div className="flex h-full min-h-0 flex-col">
