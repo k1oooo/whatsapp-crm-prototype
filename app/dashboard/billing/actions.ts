@@ -64,7 +64,7 @@ export async function startCheckout(): Promise<{ error?: string }> {
       client_reference_id: business.id,
       line_items: [{ price: process.env.STRIPE_PRICE_ID!, quantity: 1 }],
       subscription_data: { metadata: { business_id: business.id } },
-      success_url: `${base}/dashboard/billing?checkout=success`,
+      success_url: `${base}/dashboard/billing/return?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${base}/dashboard/billing?checkout=cancelled`,
     });
   } catch (err) {

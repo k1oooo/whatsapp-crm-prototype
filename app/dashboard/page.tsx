@@ -1,10 +1,21 @@
-import { Banknote, CircleCheck, Hourglass, MessagesSquare } from "lucide-react";
+import {
+  Activity,
+  Banknote,
+  CircleCheck,
+  Hourglass,
+  MessageSquareText,
+  Plus,
+  Send,
+  TrendingUp,
+  Users,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 
-// Shown on large screens when no chat is open: what needs you, at a glance.
-export default async function InboxHome() {
+export default async function DashboardOverview() {
   const supabase = await createClient();
-  const { data } = await supabase.from("leads").select("pending_decision, order_status, stage");
+  const { data } = await supabase
+    .from("leads")
+    .select("pending_decision, order_status, stage");
   const rows = data ?? [];
 
   const needsYou = rows.filter((r) => r.pending_decision).length;
@@ -12,36 +23,175 @@ export default async function InboxHome() {
   const paid = rows.filter((r) => r.order_status === "paid").length;
 
   const tiles = [
-    { label: "Need you", value: needsYou, icon: Hourglass, tone: "bg-warning text-warning-foreground" },
-    { label: "Waiting for payment", value: waiting, icon: Banknote, tone: "bg-info text-info-foreground" },
-    { label: "Paid orders", value: paid, icon: CircleCheck, tone: "bg-success text-success-foreground" },
+    {
+      label: "Need you",
+      value: needsYou,
+      icon: Hourglass,
+      tone: "bg-warning text-warning-foreground",
+    },
+    {
+      label: "Waiting for payment",
+      value: waiting,
+      icon: Banknote,
+      tone: "bg-info text-info-foreground",
+    },
+    {
+      label: "Paid orders",
+      value: paid,
+      icon: CircleCheck,
+      tone: "bg-success text-success-foreground",
+    },
+  ];
+
+  // Hardcoded data for dashboard expansion
+  const recentActivity = [
+    {
+      id: 1,
+      name: "Faiz",
+      action: "paid their order",
+      extra: "RM 150.00",
+      time: "2 hours ago",
+      icon: Banknote,
+      tone: "bg-success/10 text-success",
+    },
+    {
+      id: 2,
+      name: "Reyna",
+      action: "confirmed order details",
+      time: "4 hours ago",
+      icon: CircleCheck,
+      tone: "bg-primary/10 text-primary",
+    },
+    {
+      id: 3,
+      name: "Jett",
+      action: "sent a new message",
+      time: "5 hours ago",
+      icon: MessageSquareText,
+      tone: "bg-info/10 text-info",
+    },
+    {
+      id: 4,
+      name: "Unknown Number",
+      action: "started a new chat",
+      time: "Yesterday",
+      icon: Users,
+      tone: "bg-muted text-muted-foreground",
+    },
   ];
 
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-8 bg-chat p-8 text-center">
-      <div className="flex flex-col items-center gap-3">
-        <span className="flex size-14 items-center justify-center rounded-2xl bg-card shadow-xs">
-          <MessagesSquare className="size-7 text-primary" aria-hidden />
+    <div className="flex h-full flex-col gap-8 bg-muted/20 p-8 overflow-y-auto">
+      {/* Header */}
+      <div className="flex items-center gap-4">
+        <span className="flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <Activity className="size-6" aria-hidden />
         </span>
-        <h1 className="font-heading text-2xl font-bold">Pick a chat</h1>
-        <p className="max-w-sm text-muted-foreground">
-          {needsYou > 0
-            ? "Chats that need you are at the top of the list. Open one to answer it."
-            : "The assistant is handling everything. You will see a chat here when it needs you."}
-        </p>
+        <div>
+          <h1 className="font-heading text-2xl font-bold">Overview</h1>
+          <p className="text-muted-foreground">
+            A quick glance at your pipeline and orders.
+          </p>
+        </div>
       </div>
 
-      <ul className="grid w-full max-w-xl grid-cols-3 gap-3">
+      {/* Primary Metrics */}
+      <ul className="grid w-full grid-cols-1 gap-4 md:grid-cols-3">
         {tiles.map(({ label, value, icon: Icon, tone }) => (
-          <li key={label} className="rounded-xl border bg-card p-4">
-            <span className={`mx-auto flex size-9 items-center justify-center rounded-lg ${tone}`}>
-              <Icon className="size-5" aria-hidden />
-            </span>
-            <p className="mt-2 font-heading text-3xl font-bold">{value}</p>
-            <p className="text-sm text-muted-foreground">{label}</p>
+          <li
+            key={label}
+            className="flex flex-col justify-between rounded-xl border bg-card p-6 shadow-sm"
+          >
+            <div className="flex items-center gap-4">
+              <span
+                className={`flex size-12 shrink-0 items-center justify-center rounded-xl ${tone}`}
+              >
+                <Icon className="size-6" aria-hidden />
+              </span>
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">
+                  {label}
+                </p>
+                <p className="font-heading text-3xl font-bold">{value}</p>
+              </div>
+            </div>
           </li>
         ))}
       </ul>
+
+      {/* Secondary Section: Activity & Actions */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {/* Recent Activity List */}
+        <div className="col-span-1 lg:col-span-2 rounded-xl border bg-card p-6 shadow-sm">
+          <h2 className="font-heading text-lg font-bold mb-6">
+            Recent Activity
+          </h2>
+          <ul className="flex flex-col gap-6">
+            {recentActivity.map((item) => (
+              <li key={item.id} className="flex items-start gap-4">
+                <span
+                  className={`flex size-10 shrink-0 items-center justify-center rounded-full ${item.tone}`}
+                >
+                  <item.icon className="size-5" aria-hidden />
+                </span>
+                <div className="flex flex-1 flex-col sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm">
+                      <span className="font-medium text-foreground">
+                        {item.name}
+                      </span>{" "}
+                      <span className="text-muted-foreground">
+                        {item.action}
+                      </span>
+                      {item.extra && (
+                        <span className="font-medium text-foreground">
+                          {" "}
+                          • {item.extra}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  <span className="text-xs text-muted-foreground mt-1 sm:mt-0">
+                    {item.time}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Quick Actions & Performance Panel */}
+        <div className="col-span-1 flex flex-col gap-4">
+          <div className="rounded-xl border bg-card p-6 shadow-sm">
+            <h2 className="font-heading text-lg font-bold mb-4">
+              Quick Actions
+            </h2>
+            <div className="flex flex-col gap-2">
+              <button className="flex w-full items-center gap-3 rounded-lg border bg-background p-3 text-sm font-medium transition-colors hover:bg-accent hover:text-foreground">
+                <Plus className="size-4" />
+                Add manual lead
+              </button>
+              <button className="flex w-full items-center gap-3 rounded-lg border bg-background p-3 text-sm font-medium transition-colors hover:bg-accent hover:text-foreground">
+                <Send className="size-4" />
+                Send broadcast
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-xl bg-primary p-6 text-primary-foreground shadow-sm">
+            <div className="flex items-center gap-3 mb-2">
+              <TrendingUp className="size-5 text-primary-foreground/80" />
+              <h2 className="font-heading text-sm font-semibold uppercase tracking-wider text-primary-foreground/80">
+                Weekly Growth
+              </h2>
+            </div>
+            <p className="font-heading text-4xl font-bold mb-1">+24%</p>
+            <p className="text-sm text-primary-foreground/80">
+              Increase in incoming messages compared to last week.
+            </p>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
