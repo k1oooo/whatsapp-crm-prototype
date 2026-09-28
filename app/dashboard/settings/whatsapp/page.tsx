@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { WhatsAppConnectForm } from "@/components/WhatsAppConnectForm";
 import { createClient } from "@/lib/supabase/server";
+import { getOrCreateBusiness } from "@/lib/business";
 
 export default async function ConnectWhatsAppPage() {
   const supabase = await createClient();
@@ -10,11 +11,13 @@ export default async function ConnectWhatsAppPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: business } = await supabase
-    .from("businesses")
-    .select("wa_phone_number_id, wa_owner_number, wa_app_secret, wa_access_token, wa_verify_token")
-    .eq("owner_id", user.id)
-    .maybeSingle();
+  const business = await getOrCreateBusiness<{
+    wa_phone_number_id: string | null;
+    wa_owner_number: string | null;
+    wa_app_secret: string | null;
+    wa_access_token: string | null;
+    wa_verify_token: string | null;
+  }>(supabase, user, "wa_phone_number_id, wa_owner_number, wa_app_secret, wa_access_token, wa_verify_token");
   if (!business) redirect("/dashboard");
 
   const h = await headers();

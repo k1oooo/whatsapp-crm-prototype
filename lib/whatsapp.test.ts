@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { beforeEach, describe, expect, it } from "vitest";
 import { processPayload, verifySignature } from "@/lib/whatsapp";
 import { createFakeSupabase, type FakeDb } from "@/test/fake-supabase";
-import { inboundMediaPayload, inboundTextPayload, signPayload } from "@/test/webhook-fixtures";
+import { inboundMediaPayload, inboundTextPayload } from "@/test/webhook-fixtures";
 
 const PHONE_NUMBER_ID = "TEST_PHONE_NUMBER_ID";
 const CUSTOMER = "60123456789";
@@ -20,6 +20,17 @@ function makeBusiness(overrides: Record<string, unknown> = {}) {
     payment_details: null,
     ...overrides,
   };
+}
+
+/**
+ * Every business in these tests has an active paid subscription unless a test says otherwise,
+ * because processPayload now refuses to run any AI for a business without one.
+ */
+function createDb(seed: FakeDb = {}) {
+  return createFakeSupabase({
+    subscriptions: [{ business_id: "biz-1", status: "active", trial_ends_at: null, current_period_end: null }],
+    ...seed,
+  });
 }
 
 /** Every test runs with no AI keys set, so lib/ai.ts's deterministic mock provider is used. */
@@ -65,7 +76,7 @@ describe("verifySignature", () => {
 
 describe("processPayload: webhook idempotency (Meta retries the same delivery)", () => {
   it("does not create a second message or a second bot reply when the same wamid arrives twice", async () => {
-    const db = createFakeSupabase({ businesses: [makeBusiness({ auto_reply: true })] as FakeDb["businesses"] });
+    const db = createDb({ businesses: [makeBusiness({ auto_reply: true })] as FakeDb["businesses"] });
 
     const payload = inboundTextPayload({
       phoneNumberId: PHONE_NUMBER_ID,
@@ -88,7 +99,7 @@ describe("processPayload: webhook idempotency (Meta retries the same delivery)",
   });
 
   it("still creates separate leads for two different customers", async () => {
-    const db = createFakeSupabase({ businesses: [makeBusiness()] as FakeDb["businesses"] });
+    const db = createDb({ businesses: [makeBusiness()] as FakeDb["businesses"] });
 
     await processPayload(db, inboundTextPayload({ phoneNumberId: PHONE_NUMBER_ID, from: "60111111111", body: "Hi" }));
     await processPayload(db, inboundTextPayload({ phoneNumberId: PHONE_NUMBER_ID, from: "60222222222", body: "Hi" }));
@@ -99,7 +110,7 @@ describe("processPayload: webhook idempotency (Meta retries the same delivery)",
 
 describe("processPayload: order-status transitions", () => {
   it("walks collecting -> awaiting_confirmation -> confirmed, then stays paid after a manual mark-as-paid", async () => {
-    const db = createFakeSupabase({
+    const db = createDb({
       businesses: [
         makeBusiness({ auto_reply: true, payment_details: "Maybank 1234567890, KioWeb Enterprise" }),
       ] as FakeDb["businesses"],
@@ -163,7 +174,7 @@ describe("processPayload: order-status transitions", () => {
     // millisecond precision. A naive "did someone answer after this?" check compared those
     // two directly and could see the earlier bot reply as "newer" than the truncated
     // timestamp of the customer's very next message, silently dropping the reply.
-    const db = createFakeSupabase({ businesses: [makeBusiness({ auto_reply: true })] as FakeDb["businesses"] });
+    const db = createDb({ businesses: [makeBusiness({ auto_reply: true })] as FakeDb["businesses"] });
     const now = new Date();
 
     await processPayload(
@@ -188,7 +199,7 @@ describe("processPayload: order-status transitions", () => {
   });
 
   it("escalates for a discount request instead of ever agreeing to one", async () => {
-    const db = createFakeSupabase({ businesses: [makeBusiness({ auto_reply: true })] as FakeDb["businesses"] });
+    const db = createDb({ businesses: [makeBusiness({ auto_reply: true })] as FakeDb["businesses"] });
 
     await processPayload(
       db,
@@ -202,7 +213,7 @@ describe("processPayload: order-status transitions", () => {
   });
 
   it("does not send a payment confirmation reply when payment details are missing from Settings", async () => {
-    const db = createFakeSupabase({
+    const db = createDb({
       businesses: [makeBusiness({ auto_reply: true, payment_details: null })] as FakeDb["businesses"],
     });
 
@@ -240,7 +251,7 @@ describe("processPayload: order-status transitions", () => {
 
 describe("processPayload: pending_decision / handoff logic", () => {
   it("hands over a photo (likely a payment receipt) without guessing what it is", async () => {
-    const db = createFakeSupabase({ businesses: [makeBusiness({ auto_reply: true })] as FakeDb["businesses"] });
+    const db = createDb({ businesses: [makeBusiness({ auto_reply: true })] as FakeDb["businesses"] });
 
     await processPayload(
       db,
@@ -254,7 +265,7 @@ describe("processPayload: pending_decision / handoff logic", () => {
   });
 
   it("hands over a voice note as 'unsure', not 'payment'", async () => {
-    const db = createFakeSupabase({ businesses: [makeBusiness({ auto_reply: true })] as FakeDb["businesses"] });
+    const db = createDb({ businesses: [makeBusiness({ auto_reply: true })] as FakeDb["businesses"] });
 
     await processPayload(
       db,
@@ -267,7 +278,7 @@ describe("processPayload: pending_decision / handoff logic", () => {
   });
 
   it("does not auto-reply at all when auto_reply is off for the business", async () => {
-    const db = createFakeSupabase({ businesses: [makeBusiness({ auto_reply: false })] as FakeDb["businesses"] });
+    const db = createDb({ businesses: [makeBusiness({ auto_reply: false })] as FakeDb["businesses"] });
 
     await processPayload(
       db,
@@ -280,7 +291,7 @@ describe("processPayload: pending_decision / handoff logic", () => {
   });
 
   it("honours STOP immediately, even when auto_reply is off", async () => {
-    const db = createFakeSupabase({ businesses: [makeBusiness({ auto_reply: false })] as FakeDb["businesses"] });
+    const db = createDb({ businesses: [makeBusiness({ auto_reply: false })] as FakeDb["businesses"] });
 
     // Seed an existing lead so handleFollowUpReply's lookup has migration-0007 columns to read.
     db._db.leads = [
@@ -304,5 +315,230 @@ describe("processPayload: pending_decision / handoff logic", () => {
     expect(lead?.follow_up_consent).toBe("no");
     const reply = db._db.messages.find((m) => m.source === "bot");
     expect(reply).toBeTruthy();
+  });
+});
+
+describe("processPayload: reply_mode 'approve' (AI drafts, owner sends)", () => {
+  it("drafts a reply instead of sending it, but still updates CRM fields immediately", async () => {
+    const db = createDb({
+      businesses: [makeBusiness({ auto_reply: true, reply_mode: "approve" })] as FakeDb["businesses"],
+    });
+
+    await processPayload(
+      db,
+      inboundTextPayload({ phoneNumberId: PHONE_NUMBER_ID, from: CUSTOMER, body: "Saya nak order 12 cupcakes" }),
+    );
+
+    // Nothing was sent: only the customer's own inbound message exists.
+    expect(db._db.messages).toHaveLength(1);
+    expect(db._db.messages[0].direction).toBe("in");
+
+    // But a draft was written for the owner to review.
+    expect(db._db.draft_replies).toHaveLength(1);
+    const draft = db._db.draft_replies[0];
+    expect(draft.lead_id).toBe(db._db.leads[0].id);
+    expect(String(draft.body)).toContain("pickup");
+    expect(draft.order_status).toBe("collecting");
+
+    // order_status on the lead itself is not touched until the owner approves the draft.
+    expect(db._db.leads[0].order_status).toBeFalsy();
+
+    // The lead moved out of "new" as CRM data even though nothing was sent yet.
+    expect(db._db.leads[0].stage).toBe("talking");
+  });
+
+  it("replaces the pending draft rather than stacking a second one for the same lead", async () => {
+    const db = createDb({
+      businesses: [makeBusiness({ auto_reply: true, reply_mode: "approve" })] as FakeDb["businesses"],
+    });
+
+    await processPayload(
+      db,
+      inboundTextPayload({ phoneNumberId: PHONE_NUMBER_ID, from: CUSTOMER, body: "Saya nak order 12 cupcakes" }),
+    );
+    expect(db._db.draft_replies).toHaveLength(1);
+    const firstDraftId = db._db.draft_replies[0].id;
+
+    // The owner hasn't approved yet, but the customer adds more detail before that happens.
+    await processPayload(
+      db,
+      inboundTextPayload({ phoneNumberId: PHONE_NUMBER_ID, from: CUSTOMER, body: "Pickup esok pukul 10 pagi" }),
+    );
+
+    expect(db._db.draft_replies).toHaveLength(1);
+    expect(db._db.draft_replies[0].id).toBe(firstDraftId);
+    expect(db._db.draft_replies[0].order_status).toBe("awaiting_confirmation");
+  });
+
+  it("still flags pending_decision for a discount request, but sends no holding message", async () => {
+    const db = createDb({
+      businesses: [makeBusiness({ auto_reply: true, reply_mode: "approve" })] as FakeDb["businesses"],
+    });
+
+    await processPayload(
+      db,
+      inboundTextPayload({ phoneNumberId: PHONE_NUMBER_ID, from: CUSTOMER, body: "Boleh diskaun sikit tak?" }),
+    );
+
+    const lead = db._db.leads[0];
+    expect(lead.pending_decision).toBe(true);
+    expect(lead.human_reason).toBe("discount");
+    // Auto mode would have sent the "let me check with the boss" filler here; approve mode sends
+    // nothing at all, since the owner asked for full control over every send.
+    expect(db._db.messages).toHaveLength(1);
+    expect(db._db.messages[0].direction).toBe("in");
+    expect(db._db.draft_replies).toHaveLength(0);
+  });
+
+  it("does nothing differently from auto mode when reply_mode is unset (back-compat default)", async () => {
+    const db = createDb({
+      businesses: [makeBusiness({ auto_reply: true })] as FakeDb["businesses"], // no reply_mode key at all
+    });
+
+    await processPayload(
+      db,
+      inboundTextPayload({ phoneNumberId: PHONE_NUMBER_ID, from: CUSTOMER, body: "Saya nak order 12 cupcakes" }),
+    );
+
+    expect(db._db.draft_replies).toHaveLength(0);
+    expect(db._db.messages.filter((m) => m.source === "bot")).toHaveLength(1);
+    expect(db._db.leads[0].order_status).toBe("collecting");
+  });
+});
+
+describe("processPayload: subscription gating", () => {
+  const daysFromNow = (d: number) => new Date(Date.now() + d * 86_400_000).toISOString();
+
+  function dbWith(subscription: Record<string, unknown> | null, business: Record<string, unknown> = {}) {
+    return createFakeSupabase({
+      businesses: [makeBusiness({ auto_reply: true, ...business })] as FakeDb["businesses"],
+      subscriptions: subscription ? [{ business_id: "biz-1", ...subscription }] : [],
+    });
+  }
+
+  async function sendOrderMessage(db: ReturnType<typeof createFakeSupabase>) {
+    await processPayload(
+      db,
+      inboundTextPayload({ phoneNumberId: PHONE_NUMBER_ID, from: CUSTOMER, body: "Saya nak order 12 cupcakes" }),
+    );
+  }
+
+  it("replies normally during an unexpired trial", async () => {
+    const db = dbWith({ status: "trialing", trial_ends_at: daysFromNow(5) });
+    await sendOrderMessage(db);
+    expect(db._db.messages.filter((m) => m.source === "bot")).toHaveLength(1);
+  });
+
+  it("replies normally on an active paid subscription", async () => {
+    const db = dbWith({ status: "active", trial_ends_at: null });
+    await sendOrderMessage(db);
+    expect(db._db.messages.filter((m) => m.source === "bot")).toHaveLength(1);
+  });
+
+  it("stops replying once the trial has ended, and tells the owner why", async () => {
+    const db = dbWith({ status: "trialing", trial_ends_at: daysFromNow(-1) });
+    await sendOrderMessage(db);
+
+    // Nothing went to the customer, and the lead was not touched by the AI.
+    expect(db._db.messages).toHaveLength(1);
+    expect(db._db.messages[0].direction).toBe("in");
+    const lead = db._db.leads[0];
+    expect(lead.pending_decision).toBe(true);
+    expect(lead.human_reason).toBe("billing");
+    expect(String(lead.handoff_note)).toMatch(/trial has ended/i);
+    expect(lead.order_status).toBeFalsy();
+  });
+
+  it("stops replying when a payment has failed (past_due)", async () => {
+    const db = dbWith({ status: "past_due", trial_ends_at: null });
+    await sendOrderMessage(db);
+    expect(db._db.messages).toHaveLength(1);
+    expect(db._db.leads[0].human_reason).toBe("billing");
+    expect(String(db._db.leads[0].handoff_note)).toMatch(/payment did not go through/i);
+  });
+
+  it("stops replying after cancellation", async () => {
+    const db = dbWith({ status: "canceled", trial_ends_at: null });
+    await sendOrderMessage(db);
+    expect(db._db.messages).toHaveLength(1);
+    expect(db._db.leads[0].human_reason).toBe("billing");
+  });
+
+  it("treats a missing subscription row as blocked, not as free access", async () => {
+    const db = dbWith(null);
+    await sendOrderMessage(db);
+    expect(db._db.messages).toHaveLength(1);
+    expect(db._db.leads[0].human_reason).toBe("billing");
+  });
+
+  it("makes no AI calls at all while blocked, even with the assistant switched off", async () => {
+    // refreshLead (lead-field extraction) is an AI call too. With no subscription it must not
+    // run, and there is nothing to flag because the owner never turned the assistant on.
+    const db = dbWith({ status: "canceled" }, { auto_reply: false });
+    await sendOrderMessage(db);
+    const lead = db._db.leads[0];
+    expect(lead.pending_decision).toBe(false);
+    expect(lead.human_reason).toBeNull();
+    expect(lead.need).toBeNull();
+    expect(lead.stage).toBe("new");
+  });
+
+  it("flags billing once, not on every message while blocked", async () => {
+    const db = dbWith({ status: "canceled" });
+    await sendOrderMessage(db);
+    const firstNote = db._db.leads[0].handoff_note;
+    db._db.leads[0].handoff_note = "owner edited this";
+    await processPayload(
+      db,
+      inboundTextPayload({ phoneNumberId: PHONE_NUMBER_ID, from: CUSTOMER, body: "Hello? Anyone there?" }),
+    );
+    expect(firstNote).toBeTruthy();
+    expect(db._db.leads[0].handoff_note).toBe("owner edited this");
+  });
+
+  it("still honours STOP while blocked", async () => {
+    const db = dbWith({ status: "canceled" }, { auto_reply: false });
+    db._db.leads = [
+      {
+        id: "lead-1",
+        business_id: "biz-1",
+        wa_contact_number: CUSTOMER,
+        name: "Test Customer",
+        follow_up_consent: "unknown",
+        consent_asked_at: null,
+        awaiting_feedback: false,
+        pending_decision: false,
+        locked_fields: [],
+        stage: "won",
+      },
+    ];
+    await processPayload(db, inboundTextPayload({ phoneNumberId: PHONE_NUMBER_ID, from: CUSTOMER, body: "STOP" }));
+    expect(db._db.leads[0].follow_up_consent).toBe("no");
+  });
+
+  it("does not run the feedback AI or accept follow-up consent while blocked", async () => {
+    const db = dbWith({ status: "canceled" });
+    db._db.leads = [
+      {
+        id: "lead-1",
+        business_id: "biz-1",
+        wa_contact_number: CUSTOMER,
+        name: "Test Customer",
+        follow_up_consent: "unknown",
+        consent_asked_at: new Date().toISOString(),
+        awaiting_feedback: true,
+        pending_decision: false,
+        locked_fields: [],
+        stage: "won",
+      },
+    ];
+    await processPayload(db, inboundTextPayload({ phoneNumberId: PHONE_NUMBER_ID, from: CUSTOMER, body: "5 sedap!" }));
+
+    const lead = db._db.leads[0];
+    // Still waiting for feedback: the AI feedback agent never ran, so nothing was consumed.
+    expect(lead.awaiting_feedback).toBe(true);
+    expect(db._db.feedback).toHaveLength(0);
+    expect(db._db.messages.filter((m) => m.source === "bot")).toHaveLength(0);
+    expect(lead.human_reason).toBe("billing");
   });
 });

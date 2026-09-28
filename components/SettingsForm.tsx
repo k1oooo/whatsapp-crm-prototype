@@ -20,12 +20,14 @@ import { Textarea } from "@/components/ui/textarea";
 
 export function SettingsForm({
   autoReply,
+  replyMode,
   toneNotes,
   paymentDetails,
   testMode,
   waConnected,
 }: {
   autoReply: boolean;
+  replyMode: "auto" | "approve";
   toneNotes: string;
   paymentDetails: string;
   testMode: boolean;
@@ -96,6 +98,40 @@ export function SettingsForm({
             </p>
           </CardContent>
         )}
+        <CardContent className="flex flex-col gap-2 border-t pt-4">
+          <p className="text-sm font-medium">When automatic replies are on, above</p>
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 has-[:checked]:border-primary has-[:checked]:bg-secondary">
+            <input
+              type="radio"
+              name="reply_mode"
+              value="auto"
+              defaultChecked={replyMode !== "approve"}
+              className="mt-1"
+            />
+            <span>
+              <span className="block font-medium">AI replies automatically</span>
+              <span className="block text-sm text-muted-foreground">
+                Sends the moment it has an answer. Fastest for the customer.
+              </span>
+            </span>
+          </label>
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 has-[:checked]:border-primary has-[:checked]:bg-secondary">
+            <input
+              type="radio"
+              name="reply_mode"
+              value="approve"
+              defaultChecked={replyMode === "approve"}
+              className="mt-1"
+            />
+            <span>
+              <span className="block font-medium">AI drafts, I approve every send</span>
+              <span className="block text-sm text-muted-foreground">
+                Every reply waits in the chat for you to send or edit first. Slower, but nothing
+                goes to a customer without you seeing it.
+              </span>
+            </span>
+          </label>
+        </CardContent>
       </Card>
 
       <Card>

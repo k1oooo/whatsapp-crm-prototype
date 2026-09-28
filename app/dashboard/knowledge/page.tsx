@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { KnowledgeView } from "@/components/knowledge/knowledge-view";
 import { createClient } from "@/lib/supabase/server";
+import { getOrCreateBusiness } from "@/lib/business";
 import type { KbEntry } from "@/lib/knowledge";
 
 export default async function KnowledgePage() {
@@ -10,11 +11,11 @@ export default async function KnowledgePage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: business } = await supabase
-    .from("businesses")
-    .select("id, business_facts")
-    .eq("owner_id", user.id)
-    .maybeSingle();
+  const business = await getOrCreateBusiness<{ id: string; business_facts: string | null }>(
+    supabase,
+    user,
+    "id, business_facts",
+  );
   if (!business) redirect("/dashboard");
 
   const { data: rows } = await supabase

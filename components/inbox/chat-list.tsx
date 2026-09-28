@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Bot, CircleCheck, Image as ImageIcon, MessageSquareDashed, Search, X } from "lucide-react";
+import { Bot, CircleCheck, Image as ImageIcon, MessageSquareDashed, Search, Sparkles, X } from "lucide-react";
 import { ChatAvatar } from "@/components/chat-avatar";
 import { ChatFilterSheet } from "@/components/inbox/chat-filter-sheet";
 import { ALL_FILTERS, matchesFilters, type FilterId } from "@/components/inbox/chat-filters";
@@ -43,6 +43,14 @@ function StatusBadge({ chat }: { chat: ChatSummary }) {
       <Badge variant="warning">
         <ReasonIcon reason={chat.reason} />
         {chat.reason ? (REASON_LABEL[chat.reason] ?? chat.reason) : "you said you would check"}
+      </Badge>
+    );
+  }
+  if (chat.hasDraft) {
+    return (
+      <Badge variant="info">
+        <Sparkles />
+        Draft ready
       </Badge>
     );
   }

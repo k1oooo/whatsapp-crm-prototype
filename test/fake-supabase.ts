@@ -23,6 +23,8 @@ const UNIQUE_CONSTRAINTS: Record<string, string[][]> = {
   businesses: [["owner_id"], ["wa_phone_number_id"]],
   leads: [["business_id", "wa_contact_number"]],
   messages: [["wa_message_id"]],
+  draft_replies: [["lead_id"]],
+  subscriptions: [["business_id"]],
 };
 
 // Column defaults so a minimal insert() in a test still produces a row that satisfies
@@ -91,9 +93,12 @@ function matchesFilters(row: Row, filters: FilterOp[]): boolean {
   });
 }
 
+const KNOWN_TABLES = ["businesses", "leads", "messages", "draft_replies", "subscriptions", "follow_ups", "knowledge_entries", "feedback"];
+
 /** Create a fresh fake client. Pass seed rows per table to start with existing data. */
 export function createFakeSupabase(seed: FakeDb = {}) {
   const db: FakeDb = {};
+  for (const t of KNOWN_TABLES) db[t] = [];
   for (const [table, rows] of Object.entries(seed)) db[table] = rows.map((r) => ({ ...r }));
 
   function tableRows(name: string): Row[] {
@@ -174,6 +179,22 @@ export function createFakeSupabase(seed: FakeDb = {}) {
       insert(obj: Row) {
         mode = "insert";
         payload = obj;
+        return builder;
+      },
+      // Minimal upsert: only supports the shape lib/whatsapp.ts uses — a single onConflict
+      // column, no returned row needed by the caller.
+      upsert(obj: Row, opts?: { onConflict?: string }) {
+        const conflictCol = opts?.onConflict;
+        const rows = tableRows(name);
+        const existing = conflictCol ? rows.find((r) => r[conflictCol] === obj[conflictCol]) : undefined;
+        if (existing) {
+          mode = "update";
+          payload = obj;
+          filters.push(["eq", conflictCol as string, obj[conflictCol as string]] as const);
+        } else {
+          mode = "insert";
+          payload = obj;
+        }
         return builder;
       },
       update(obj: Row) {

@@ -55,6 +55,7 @@ export const REASON_LABEL: Record<string, string> = {
   payment: "payment to check",
   feedback: "unhappy customer",
   unsure: "the assistant was not sure",
+  billing: "subscription needs attention",
 };
 
 export interface Draft {
@@ -160,6 +161,7 @@ export interface ChatSummary {
   hasName: boolean;
   stage: Stage;
   needsYou: boolean;
+  hasDraft: boolean;
   reason: string | null;
   note: string | null;
   orderStatus: string | null;

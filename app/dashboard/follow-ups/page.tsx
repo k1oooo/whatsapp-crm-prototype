@@ -4,6 +4,7 @@ import { readSettings } from "@/lib/follow-up-settings";
 import type { FeedbackItem, FollowUpLead, QueueItem } from "@/lib/follow-up-types";
 import { sendMode } from "@/lib/send";
 import { createClient } from "@/lib/supabase/server";
+import { getOrCreateBusiness } from "@/lib/business";
 
 // The embedded customer can come back as an object or a one item list, depending on the driver.
 function one<T>(v: T | T[] | null | undefined): T | null {
@@ -17,11 +18,11 @@ export default async function FollowUpsPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: business } = await supabase
-    .from("businesses")
-    .select("id, follow_up_settings")
-    .eq("owner_id", user.id)
-    .maybeSingle();
+  const business = await getOrCreateBusiness<{ id: string; follow_up_settings: unknown }>(
+    supabase,
+    user,
+    "id, follow_up_settings",
+  );
   if (!business) redirect("/dashboard");
 
   const { data: queueRows } = await supabase

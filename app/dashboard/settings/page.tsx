@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { SettingsForm } from "@/components/SettingsForm";
 import { createClient } from "@/lib/supabase/server";
+import { getOrCreateBusiness } from "@/lib/business";
 import { sendMode } from "@/lib/send";
 
 export default async function SettingsPage() {
@@ -10,11 +11,14 @@ export default async function SettingsPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: business } = await supabase
-    .from("businesses")
-    .select("name, auto_reply, tone_notes, payment_details, wa_phone_number_id")
-    .eq("owner_id", user.id)
-    .maybeSingle();
+  const business = await getOrCreateBusiness<{
+    name: string;
+    auto_reply: boolean;
+    reply_mode: "auto" | "approve" | null;
+    tone_notes: string | null;
+    payment_details: string | null;
+    wa_phone_number_id: string | null;
+  }>(supabase, user, "name, auto_reply, reply_mode, tone_notes, payment_details, wa_phone_number_id");
   if (!business) redirect("/dashboard");
 
   return (
@@ -27,6 +31,7 @@ export default async function SettingsPage() {
       </header>
       <SettingsForm
         autoReply={business.auto_reply}
+        replyMode={business.reply_mode === "approve" ? "approve" : "auto"}
         toneNotes={business.tone_notes ?? ""}
         paymentDetails={business.payment_details ?? ""}
         testMode={sendMode() === "dry"}

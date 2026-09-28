@@ -9,6 +9,7 @@ import {
 } from "@/lib/follow-up-settings";
 import { parseOrderSummary } from "@/lib/leads";
 import { sendWhatsAppTemplate, sendWhatsAppText } from "@/lib/send";
+import { isSubscriptionActive, type SubscriptionInfo } from "@/lib/subscriptions";
 
 const DAY = 86_400_000;
 const WINDOW_MS = 23 * 60 * 60 * 1000; // stay inside WhatsApp's 24 hour window with a margin
@@ -137,6 +138,18 @@ async function processOne(db: SupabaseClient, id: string): Promise<Outcome> {
   if (!lead || !business) {
     await finish("failed", "The customer or the business could not be found");
     return "failed";
+  }
+
+  // Automated follow-ups are part of what the subscription pays for. Leave the row scheduled,
+  // not skipped, so it goes out on its own once the owner subscribes again.
+  const { data: subscription } = await db
+    .from("subscriptions")
+    .select("status, trial_ends_at, current_period_end")
+    .eq("business_id", business.id)
+    .maybeSingle();
+  if (!isSubscriptionActive(subscription as SubscriptionInfo | null)) {
+    await finish("scheduled", "Paused: the subscription is not active");
+    return "waiting";
   }
 
   if (lead.follow_up_consent === "no") {

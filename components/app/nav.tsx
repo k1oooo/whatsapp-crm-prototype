@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   BookOpen,
   Columns3,
+  CreditCard,
   Megaphone,
   MessagesSquare,
   Settings,
@@ -16,6 +17,8 @@ import { cn } from "@/lib/utils";
 interface Item {
   href: string;
   label: string;
+  /** Shorter text for the six-across mobile bar, where the full label would not fit. */
+  short?: string;
   icon: LucideIcon;
   active: (path: string) => boolean;
   count?: number;
@@ -45,14 +48,22 @@ function useItems(needsYou: number): Item[] {
     {
       href: "/dashboard/knowledge",
       label: "Knowledge base",
+      short: "Knowledge",
       icon: BookOpen,
       active: (p) => p.startsWith("/dashboard/knowledge"),
     },
     {
       href: "/dashboard/settings",
       label: "AI Settings",
+      short: "AI",
       icon: Settings,
       active: (p) => p.startsWith("/dashboard/settings"),
+    },
+    {
+      href: "/dashboard/billing",
+      label: "Billing",
+      icon: CreditCard,
+      active: (p) => p.startsWith("/dashboard/billing"),
     },
   ];
 }
@@ -132,9 +143,9 @@ export function MobileNav({ needsYou }: { needsYou: number }) {
   return (
     <nav
       aria-label="Main"
-      className="grid shrink-0 grid-cols-5 border-t bg-card pb-[env(safe-area-inset-bottom)] lg:hidden"
+      className="grid shrink-0 grid-cols-6 border-t bg-card pb-[env(safe-area-inset-bottom)] lg:hidden"
     >
-      {useItems(needsYou).map(({ href, label, icon: Icon, active, count }) => {
+      {useItems(needsYou).map(({ href, label, short, icon: Icon, active, count }) => {
         const on = active(pathname);
         return (
           <Link
@@ -154,7 +165,7 @@ export function MobileNav({ needsYou }: { needsYou: number }) {
                 </span>
               )}
             </span>
-            {label}
+            {short ?? label}
           </Link>
         );
       })}

@@ -2,6 +2,7 @@ import { ORDER_LABEL, STAGES, STAGE_LABEL, type ChatSummary, type Stage } from "
 
 export type FilterId =
   | "needs_you"
+  | "has_draft"
   | "waiting_payment"
   | "paid"
   | "quiet"
@@ -15,6 +16,7 @@ export interface FilterOption {
 
 export const STATUS_FILTERS: FilterOption[] = [
   { id: "needs_you", label: "Needs you", test: (c) => c.needsYou },
+  { id: "has_draft", label: "Draft ready", test: (c) => c.hasDraft },
   { id: "waiting_payment", label: ORDER_LABEL.confirmed ?? "Waiting for payment", test: (c) => c.orderStatus === "confirmed" },
   { id: "paid", label: ORDER_LABEL.paid ?? "Paid", test: (c) => c.orderStatus === "paid" },
   { id: "quiet", label: "Quiet", test: (c) => c.cold && !c.needsYou },

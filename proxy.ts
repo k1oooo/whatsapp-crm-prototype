@@ -31,8 +31,8 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Skip static files and the WhatsApp webhook.
+  // Skip static files and the webhooks (WhatsApp, Stripe) and cron, none of which have a login session.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|api/whatsapp|api/cron|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|api/whatsapp|api/stripe|api/cron|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
   ],
 };

@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useRef } from "react";
 import { Bot, Image as ImageIcon } from "lucide-react";
 import { HandoffCard } from "@/components/chat/handoff-card";
+import { DraftCard } from "@/components/chat/draft-card";
 import { clockTime, dayKey, dayLabel, isMedia, previewText } from "@/lib/leads";
 import { cn } from "@/lib/utils";
 
@@ -19,6 +20,11 @@ export interface Handoff {
   reason: string | null;
   title: string;
   note: string | null;
+}
+
+export interface Draft {
+  leadId: string;
+  body: string;
 }
 
 function Bubble({ m }: { m: Msg }) {
@@ -55,10 +61,18 @@ function Bubble({ m }: { m: Msg }) {
   );
 }
 
-export function ChatThread({ messages, handoff }: { messages: Msg[]; handoff: Handoff | null }) {
+export function ChatThread({
+  messages,
+  handoff,
+  draft,
+}: {
+  messages: Msg[];
+  handoff: Handoff | null;
+  draft: Draft | null;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
-  const count = messages.length + (handoff ? 1 : 0);
+  const count = messages.length + (handoff ? 1 : 0) + (draft ? 1 : 0);
 
   // Open at the newest message, and follow new ones unless the admin scrolled up to read.
   useEffect(() => {
@@ -80,7 +94,7 @@ export function ChatThread({ messages, handoff }: { messages: Msg[]; handoff: Ha
       tabIndex={0}
       className="min-h-0 flex-1 overflow-y-auto bg-chat px-3 py-4 outline-none sm:px-6"
     >
-      {messages.length === 0 && !handoff ? (
+      {messages.length === 0 && !handoff && !draft ? (
         <p className="py-10 text-center text-muted-foreground">No messages yet.</p>
       ) : (
         <ul className="mx-auto flex max-w-3xl flex-col gap-2">
@@ -100,6 +114,7 @@ export function ChatThread({ messages, handoff }: { messages: Msg[]; handoff: Ha
             );
           })}
           {handoff && <HandoffCard key={handoff.note ?? handoff.reason ?? "pending"} {...handoff} />}
+          {draft && <DraftCard key={draft.leadId} leadId={draft.leadId} body={draft.body} />}
         </ul>
       )}
     </div>

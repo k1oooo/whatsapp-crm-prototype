@@ -183,10 +183,12 @@ export async function saveSettings(_prev: FormState, formData: FormData): Promis
 
   // business_facts (the knowledge base's "Other notes") is saved from the Knowledge base page,
   // not here, so this never overwrites it with an empty value.
+  const replyMode = formData.get("reply_mode") === "approve" ? "approve" : "auto";
   const { error } = await supabase
     .from("businesses")
     .update({
       auto_reply: formData.get("auto_reply") === "on",
+      reply_mode: replyMode,
       tone_notes: text("tone_notes"),
       payment_details: text("payment_details"),
     })
@@ -400,6 +402,50 @@ export async function toggleAutoReply(next: boolean): Promise<FormState> {
 
   const { error } = await supabase.from("businesses").update({ auto_reply: next }).eq("owner_id", user.id);
   if (error) return { error: "Could not change the assistant. Try again." };
+
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
+/** Send a draft the assistant wrote, exactly as written or edited first. Then clear the draft. */
+export async function sendDraftReply(leadId: string, _prev: FormState, formData: FormData): Promise<FormState> {
+  void _prev;
+  const supabase = await createClient();
+
+  const { data: draft } = await supabase
+    .from("draft_replies")
+    .select("body, order_status, order_summary")
+    .eq("lead_id", leadId)
+    .maybeSingle();
+  if (!draft) return { error: "This draft is no longer there — it may already have been sent or discarded." };
+
+  const edited = String(formData.get("body") ?? "").trim();
+  const body = edited || draft.body;
+  if (!body) return { error: "The draft is empty. Type a reply first." };
+
+  const ctx = await loadContext(supabase, leadId);
+  if (typeof ctx === "string") return { error: ctx };
+
+  // A paid order stays paid even if this draft was written before the owner marked it paid.
+  const extra: Record<string, unknown> = {};
+  if (draft.order_status) {
+    extra.order_status = ctx.lead.order_status === "paid" && draft.order_status === "confirmed" ? "paid" : draft.order_status;
+    extra.order_summary = draft.order_summary ?? ctx.lead.order_summary ?? null;
+  }
+
+  const result = await deliver(supabase, ctx, body, "bot", extra);
+  if (result.ok) {
+    const { error } = await supabase.from("draft_replies").delete().eq("lead_id", leadId);
+    if (error) console.error("Sent the draft but could not clear it", leadId, error.message);
+  }
+  return result;
+}
+
+/** The owner decides not to send this draft. The customer's messages are still there to answer by hand. */
+export async function discardDraftReply(leadId: string): Promise<FormState> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("draft_replies").delete().eq("lead_id", leadId);
+  if (error) return { error: "Could not discard the draft. Try again." };
 
   revalidatePath("/dashboard", "layout");
   return { ok: true };

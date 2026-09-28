@@ -1,6 +1,7 @@
 import {
   Banknote,
   BadgePercent,
+  CreditCard,
   CircleHelp,
   ClipboardCheck,
   Hourglass,
@@ -16,6 +17,7 @@ const ICONS: Record<string, LucideIcon> = {
   approval: ClipboardCheck,
   feedback: Frown,
   unsure: CircleHelp,
+  billing: CreditCard,
 };
 
 export function ReasonIcon({ reason, className }: { reason: string | null; className?: string }) {

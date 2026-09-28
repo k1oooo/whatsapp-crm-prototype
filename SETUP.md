@@ -2,7 +2,7 @@
 
 ## 1. Supabase (free tier)
 1. supabase.com > organization "Vici" > New project (Singapore region).
-2. SQL Editor > run `supabase/migrations/0001_init.sql`, then `0002_quote_and_locks.sql`, then `0003_pending_decision.sql`, then `0004_auto_reply.sql`, then `0005_handoff_note.sql`, then `0006_order_flow.sql`, then `0007_follow_ups.sql`, then `0008_knowledge_base.sql`, then `0009_self_serve_signup.sql`, then `0010_per_business_wa_credentials.sql`. Run each file once, in order. If you see "already exists", that file was already run, so skip it.
+2. SQL Editor > run `supabase/migrations/0001_init.sql`, then `0002_quote_and_locks.sql`, then `0003_pending_decision.sql`, then `0004_auto_reply.sql`, then `0005_handoff_note.sql`, then `0006_order_flow.sql`, then `0007_follow_ups.sql`, then `0008_knowledge_base.sql`, then `0009_self_serve_signup.sql`, then `0010_per_business_wa_credentials.sql`, then `0011_reply_mode.sql`, then `0012_billing.sql`. Run each file once, in order. If you see "already exists", that file was already run, so skip it.
 3. Settings > API Keys: put the URL, publishable key and secret key in `.env.local` (names are in `.env.example`).
 4. Open the app, go to `/signup`, and create your account with your business name. The business row and dashboard are created for you — no SQL Editor step needed. (Auth > Providers > Email: if "Confirm email" is on, you'll get a confirmation link first; the business is still created the first time you land on the dashboard.)
 
@@ -57,3 +57,23 @@ There are two ways to hold the credentials (verify token, app secret, access tok
 - **Per-business** (each business brings its own Meta app/WABA): in "Connect WhatsApp", fill in that business's own verify token, app secret, and access token. That business's messages are then signed, verified, and sent using only its own credentials — never the shared ones, and never visible to any other business.
 
 A business can mix and match (e.g. its own access token but the shared verify token). Whichever the webhook payload's phone number ID resolves to is what gets used, checked before the shared default.
+
+## 9. Billing (Stripe)
+Every business, new or existing, gets a 14 day free trial with no card needed. When the trial ends (or a payment fails, or the subscription is cancelled) the assistant stops: it does not reply, draft, extract lead details, or send follow-ups, and each new chat is flagged "subscription needs attention". Customer messages still arrive and the owner can answer by hand. STOP is always honoured.
+
+To take payments:
+1. dashboard.stripe.com (start in **test mode**) > Product catalog > add one product with a recurring price. Copy the price id (`price_...`).
+2. Developers > API keys: copy the secret key.
+3. Settings > Billing > Customer portal: turn it on (this is what the "Manage billing" button opens).
+4. Developers > Webhooks > add an endpoint `https://YOUR-DOMAIN/api/stripe/webhook`, and send these events: `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`. Copy the signing secret (`whsec_...`).
+5. Set on the deployment (and in `.env.local`):
+   - `STRIPE_SECRET_KEY`
+   - `STRIPE_PRICE_ID`
+   - `STRIPE_WEBHOOK_SECRET`
+   - `NEXT_PUBLIC_APP_URL` (for example `https://yourapp.vercel.app`, used for the return links after checkout)
+
+Without the first two, the Billing page says billing is not set up and the Subscribe button is disabled. The trial and the pause still work.
+
+Test locally: run `stripe listen --forward-to localhost:3000/api/stripe/webhook`, use its `whsec_...` as `STRIPE_WEBHOOK_SECRET`, then check out with card `4242 4242 4242 4242`. To test the pause without waiting 14 days, set the `subscriptions.trial_ends_at` for your business to a past date in the Supabase table editor (status `trialing`).
+
+Note: the trial is tracked by this app, not by Stripe. Subscribing charges immediately; it does not carry over remaining trial days.

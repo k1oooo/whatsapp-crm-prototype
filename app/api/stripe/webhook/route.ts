@@ -1,0 +1,53 @@
+import { type NextRequest } from "next/server";
+import type Stripe from "stripe";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { stripe } from "@/lib/stripe";
+import { syncSubscription } from "@/lib/stripe-sync";
+
+export const runtime = "nodejs";
+
+export async function POST(req: NextRequest) {
+  const raw = await req.text();
+  const signature = req.headers.get("stripe-signature");
+  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!signature || !secret) return new Response("Not configured", { status: 400 });
+
+  let event: Stripe.Event;
+  try {
+    event = stripe().webhooks.constructEvent(raw, signature, secret);
+  } catch (err) {
+    console.error("Stripe webhook signature check failed", err);
+    return new Response("Invalid signature", { status: 401 });
+  }
+
+  const admin = createAdminClient();
+
+  try {
+    switch (event.type) {
+      // Checkout finished. The subscription itself (with our business_id metadata already on
+      // it, from subscription_data.metadata at creation) is the source of truth, so fetch and
+      // save that rather than trusting only the fields Stripe includes on the session.
+      case "checkout.session.completed": {
+        const session = event.data.object as Stripe.Checkout.Session;
+        if (typeof session.subscription === "string") {
+          const sub = await stripe().subscriptions.retrieve(session.subscription);
+          await syncSubscription(admin, sub);
+        }
+        break;
+      }
+      case "customer.subscription.created":
+      case "customer.subscription.updated":
+      case "customer.subscription.deleted": {
+        await syncSubscription(admin, event.data.object as Stripe.Subscription);
+        break;
+      }
+      default:
+        break;
+    }
+  } catch (err) {
+    console.error("Stripe webhook processing failed", event.type, err);
+    return new Response("Processing failed", { status: 500 });
+  }
+
+  return new Response("ok", { status: 200 });
+}
