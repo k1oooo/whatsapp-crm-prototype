@@ -17,13 +17,17 @@ import {
 import { readSettings } from "@/lib/follow-up-settings";
 import { getBusinessFacts } from "@/lib/knowledge";
 import { sendWhatsAppText } from "@/lib/send";
+import { isSubscriptionActive, subscriptionBlockedNote, type SubscriptionInfo } from "@/lib/subscriptions";
 
 interface BusinessInfo {
   id: string;
   wa_phone_number_id: string;
   auto_reply: boolean;
+  reply_mode?: "auto" | "approve" | null;
   business_facts: string | null;
   tone_notes: string | null;
+  wa_access_token: string | null;
+  subscription?: SubscriptionInfo | null;
 }
 
 // After the owner replies from their own phone, the assistant stays quiet in that chat for a while.
@@ -67,8 +71,9 @@ export interface WaWebhookPayload {
 
 /* ---------- Signature verification ---------- */
 
-export function verifySignature(rawBody: string, header: string | null): boolean {
-  const secret = process.env.WHATSAPP_APP_SECRET;
+// The secret is resolved by the caller: it may be a business's own wa_app_secret (their own Meta
+// app), or the deployment's shared WHATSAPP_APP_SECRET for businesses that don't have their own.
+export function verifySignature(rawBody: string, header: string | null, secret: string | undefined): boolean {
   if (!secret || !header?.startsWith("sha256=")) return false;
 
   const expected = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
@@ -210,8 +215,11 @@ export async function refreshLead(db: SupabaseClient, leadId: string): Promise<v
     .from("messages")
     .select("direction, body, sent_at")
     .eq("lead_id", leadId)
-    .order("sent_at", { ascending: false })
+    // created_at (our own clock) sorts first: WhatsApp's inbound sent_at is whole seconds, so
+    // sorting by sent_at first can put an outbound reply's millisecond timestamp ahead of a
+    // customer message that actually landed a moment later in the same second.
     .order("created_at", { ascending: false })
+    .order("sent_at", { ascending: false })
     .limit(30);
 
   const messages: ChatMessage[] = [...(rows ?? [])]
@@ -250,12 +258,35 @@ async function autoReply(db: SupabaseClient, business: BusinessInfo, leadId: str
     .eq("id", leadId)
     .maybeSingle();
 
+  // In "AI drafts, I approve every send" mode, a confirmed order_status is never written to the
+  // lead until the owner actually sends it (see the draft-write block below) — the customer
+  // hasn't seen it yet, so it isn't true until then. But if the customer sends another message
+  // before the owner approves that draft, the assistant still needs to know it already asked
+  // this customer to confirm, or it will start the order over from scratch on every regeneration.
+  // The still-pending draft, not the lead, is the real "what have we told this customer so far".
+  let effectiveOrderStatus = orderRow?.order_status ?? null;
+  let effectiveOrderSummary = orderRow?.order_summary ?? null;
+  if (business.reply_mode === "approve") {
+    const { data: pendingDraft } = await db
+      .from("draft_replies")
+      .select("order_status, order_summary")
+      .eq("lead_id", leadId)
+      .maybeSingle();
+    if (pendingDraft) {
+      effectiveOrderStatus = pendingDraft.order_status ?? effectiveOrderStatus;
+      effectiveOrderSummary = pendingDraft.order_summary ?? effectiveOrderSummary;
+    }
+  }
+
   const { data: rows } = await db
     .from("messages")
-    .select("direction, body, sent_at, source")
+    .select("direction, body, sent_at, created_at, source")
     .eq("lead_id", leadId)
-    .order("sent_at", { ascending: false })
+    // created_at first, for the same reason as refreshLead above: it keeps "newest" meaning
+    // what was actually most recent, instead of whichever row has the highest-resolution
+    // sent_at.
     .order("created_at", { ascending: false })
+    .order("sent_at", { ascending: false })
     .limit(30);
 
   const newest = rows?.[0];
@@ -312,8 +343,8 @@ async function autoReply(db: SupabaseClient, business: BusinessInfo, leadId: str
         toneNotes: business.tone_notes,
         lead: current,
         order: {
-          status: (orderRow?.order_status as OrderStatus | null) ?? "none",
-          summary: orderRow?.order_summary ?? null,
+          status: (effectiveOrderStatus as OrderStatus | null) ?? "none",
+          summary: effectiveOrderSummary,
         },
         messages,
       });
@@ -350,7 +381,7 @@ async function autoReply(db: SupabaseClient, business: BusinessInfo, leadId: str
 
   // The customer confirmed the order. The system, not the AI, adds the bank details,
   // so the account number is always copied exactly.
-  const previousOrder = orderRow?.order_status ?? null;
+  const previousOrder = effectiveOrderStatus;
   // Only the first confirmation sends bank details. A later "thank you" must not repeat them.
   if (
     result.action === "reply" &&
@@ -374,12 +405,16 @@ async function autoReply(db: SupabaseClient, business: BusinessInfo, leadId: str
   }
 
   // Someone else (the owner, or an earlier webhook) may have answered in the meantime.
+  // Compare against created_at, not sent_at: WhatsApp's inbound timestamp is whole seconds,
+  // but our own outbound sent_at has millisecond precision, so a bot reply and the customer's
+  // next message landing in the same second could otherwise make an earlier reply look "newer"
+  // than the message we're about to answer, and this reply would be dropped silently.
   const { data: newer } = await db
     .from("messages")
     .select("id")
     .eq("lead_id", leadId)
     .eq("direction", "out")
-    .gt("sent_at", newest.sent_at)
+    .gt("created_at", newest.created_at)
     .limit(1);
   if (newer && newer.length > 0) return true;
 
@@ -407,11 +442,50 @@ async function autoReply(db: SupabaseClient, business: BusinessInfo, leadId: str
     if (noteError) {
       console.error("Could not save the handoff note (is migration 0005 applied?)", noteError.message);
     }
+
+    // "AI drafts, I approve every send" means nothing goes to the customer without a click —
+    // not even the "let me check with the boss" holding line auto mode would otherwise send.
+    // The owner already sees this lead needs them via pending_decision; there is nothing to draft.
+    if (business.reply_mode === "approve") return true;
+  }
+
+  // Once the assistant has answered, the lead is no longer "new". This is CRM data (name, need,
+  // budget, stage, ...), not anything the customer sees, so it is safe to save immediately in
+  // both reply modes — only the actual outbound message and the order status wait for approval.
+  const next = { ...result.lead, stage: result.lead.stage === "new" ? ("talking" as const) : result.lead.stage };
+  const merged = mergeWithLocks(lead, next);
+  const { error: leadFieldsError } = await db
+    .from("leads")
+    .update({ ...merged, updated_at: nowIso })
+    .eq("id", leadId);
+  if (leadFieldsError) console.error("Could not save the lead details", leadId, leadFieldsError.message);
+
+  if (result.action === "reply" && business.reply_mode === "approve") {
+    // Hold the reply for the owner to send, instead of sending it now. order_status is part of
+    // the draft rather than the lead until the owner approves: it describes what will be true
+    // once the customer actually sees this reply, which has not happened yet.
+    const { error: draftError } = await db.from("draft_replies").upsert(
+      {
+        lead_id: leadId,
+        business_id: business.id,
+        body: result.reply,
+        order_status: result.order.status === "none" ? null : result.order.status,
+        order_summary: result.order.summary ?? effectiveOrderSummary,
+      },
+      { onConflict: "lead_id" },
+    );
+    if (draftError) {
+      console.error("Could not save the draft reply (is migration 0011 applied?)", draftError.message);
+      await handOver("unsure", "The assistant drafted a reply but could not save it. Please answer the customer.");
+    }
+    return true;
   }
 
   let sentId: string;
   try {
-    sentId = (await sendWhatsAppText(business.wa_phone_number_id, lead.wa_contact_number, result.reply)).id;
+    sentId = (
+      await sendWhatsAppText(business.wa_phone_number_id, lead.wa_contact_number, result.reply, business.wa_access_token)
+    ).id;
   } catch (err) {
     console.error("Auto-reply send failed", leadId, err);
     await handOver("unsure", "The assistant's reply could not be sent. Please answer the customer.");
@@ -430,14 +504,9 @@ async function autoReply(db: SupabaseClient, business: BusinessInfo, leadId: str
   });
   if (msgError) console.error("Could not save the assistant's message", leadId, msgError.message);
 
-  // Once the assistant has answered, the lead is no longer "new".
-  const next = { ...result.lead, stage: result.lead.stage === "new" ? ("talking" as const) : result.lead.stage };
-  const merged = mergeWithLocks(lead, next);
-
   const { error: updateError } = await db
     .from("leads")
     .update({
-      ...merged,
       last_message_at: now,
       last_outbound_at: now,
       updated_at: now,
@@ -482,7 +551,7 @@ async function sayToCustomer(
   to: string,
   body: string,
 ): Promise<void> {
-  const sent = await sendWhatsAppText(business.wa_phone_number_id, to, body);
+  const sent = await sendWhatsAppText(business.wa_phone_number_id, to, body, business.wa_access_token);
   const now = new Date().toISOString();
   await db.from("messages").insert({
     lead_id: leadId,
@@ -515,8 +584,8 @@ async function handleFollowUpReply(db: SupabaseClient, business: BusinessInfo, l
     .from("messages")
     .select("direction, body, sent_at, source")
     .eq("lead_id", leadId)
-    .order("sent_at", { ascending: false })
     .order("created_at", { ascending: false })
+    .order("sent_at", { ascending: false })
     .limit(12);
   const newest = rows?.[0];
   if (!newest || newest.direction !== "in") return false;
@@ -534,7 +603,9 @@ async function handleFollowUpReply(db: SupabaseClient, business: BusinessInfo, l
     return true;
   }
 
-  if (!business.auto_reply) return false;
+  // Everything below is the assistant talking (and, for feedback, an AI call), so it needs the
+  // assistant on AND paid for. handleLead then flags the lead for billing if that is why.
+  if (!business.auto_reply || !isSubscriptionActive(business.subscription)) return false;
 
   // "YA" to the offer that came with the payment confirmation.
   const askedRecently =
@@ -597,7 +668,33 @@ async function handleFollowUpReply(db: SupabaseClient, business: BusinessInfo, l
 
 /** Decide what to do with a lead after new messages arrived. */
 async function handleLead(db: SupabaseClient, business: BusinessInfo, leadId: string): Promise<void> {
+  // STOP and consent replies are honoured regardless of billing: they cost nothing (no AI call)
+  // and ignoring an opt-out because a card lapsed would be wrong.
   if (await handleFollowUpReply(db, business, leadId)) return;
+
+  // Every AI call below (the reply, and the lead-field extraction) costs money, so none of it
+  // runs while the subscription is not active.
+  if (!isSubscriptionActive(business.subscription)) {
+    // Only tell the owner why if they actually wanted the assistant on. A business that never
+    // turned it on isn't missing anything, so flagging every new lead "billing" would be noise.
+    if (business.auto_reply) {
+      const { data: current } = await db.from("leads").select("pending_decision").eq("id", leadId).maybeSingle();
+      // Flag once, not on every message, so the note isn't rewritten while they decide.
+      if (current && !current.pending_decision) {
+        const { error } = await db
+          .from("leads")
+          .update({
+            pending_decision: true,
+            human_reason: "billing",
+            handoff_note: subscriptionBlockedNote(business.subscription),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", leadId);
+        if (error) console.error("Could not flag the lead as blocked by billing", leadId, error.message);
+      }
+    }
+    return;
+  }
 
   const { data: lead } = await db
     .from("leads")
@@ -624,13 +721,24 @@ export async function processPayload(db: SupabaseClient, payload: WaWebhookPaylo
 
       const { data: business } = await db
         .from("businesses")
-        .select("id, wa_phone_number_id, auto_reply, business_facts, tone_notes")
+        .select("id, wa_phone_number_id, auto_reply, reply_mode, business_facts, tone_notes, wa_access_token")
         .eq("wa_phone_number_id", phoneNumberId)
         .maybeSingle();
       if (!business) {
         console.warn(`No business registered for phone_number_id ${phoneNumberId}`);
         continue;
       }
+
+      // One extra query per unique business per webhook delivery (not per message), so gating
+      // doesn't add real cost. Missing row (pre-migration-0012 data, or the trial insert having
+      // failed) is treated as "no active subscription", not as "let it through" — access needs
+      // an explicit active/trialing row, not the absence of one.
+      const { data: subscription } = await db
+        .from("subscriptions")
+        .select("status, trial_ends_at, current_period_end")
+        .eq("business_id", business.id)
+        .maybeSingle();
+      const businessWithSub = { ...business, subscription } as BusinessInfo;
 
       if (change.field === "messages") {
         for (const m of value.messages ?? []) {
@@ -645,7 +753,7 @@ export async function processPayload(db: SupabaseClient, payload: WaWebhookPaylo
             sentAt: new Date(Number(m.timestamp) * 1000),
             source: "customer",
           });
-          if (leadId) touched.set(leadId, business as BusinessInfo);
+          if (leadId) touched.set(leadId, businessWithSub);
         }
       }
 
@@ -660,7 +768,7 @@ export async function processPayload(db: SupabaseClient, payload: WaWebhookPaylo
             sentAt: new Date(Number(e.timestamp) * 1000),
             source: "owner",
           });
-          if (leadId) touched.set(leadId, business as BusinessInfo);
+          if (leadId) touched.set(leadId, businessWithSub);
         }
       }
     }

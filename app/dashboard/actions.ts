@@ -5,7 +5,12 @@ import { createClient } from "@/lib/supabase/server";
 import { CONSENT_ASK, readSettings } from "@/lib/follow-up-settings";
 import { scheduleAfterPayment } from "@/lib/follow-ups";
 import { sendWhatsAppText } from "@/lib/send";
-import { draftFollowUp, writeConfirmation, type ChatMessage, type LeadFields } from "@/lib/ai";
+import {
+  draftFollowUp,
+  writeConfirmation,
+  type ChatMessage,
+  type LeadFields,
+} from "@/lib/ai";
 import { LEAD_COLUMNS, STAGES, type Lead, type Stage } from "@/lib/leads";
 
 // Row level security makes sure each of these only touches the signed-in owner's data.
@@ -26,12 +31,19 @@ export async function moveStage(leadId: string, stage: Stage) {
     .select("locked_fields")
     .eq("id", leadId)
     .single();
-  const others = ((lead?.locked_fields as string[] | undefined) ?? []).filter((f) => f !== "stage");
-  const locked = stage === "won" || stage === "lost" ? [...others, "stage"] : others;
+  const others = ((lead?.locked_fields as string[] | undefined) ?? []).filter(
+    (f) => f !== "stage",
+  );
+  const locked =
+    stage === "won" || stage === "lost" ? [...others, "stage"] : others;
 
   await supabase
     .from("leads")
-    .update({ stage, locked_fields: locked, updated_at: new Date().toISOString() })
+    .update({
+      stage,
+      locked_fields: locked,
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", leadId);
   revalidatePath("/dashboard", "layout");
 }
@@ -52,10 +64,20 @@ export async function clearPending(leadId: string) {
   revalidatePath("/dashboard", "layout");
 }
 
-const EDITABLE = ["name", "need", "budget_myr", "quoted_price_myr", "deadline"] as const;
+const EDITABLE = [
+  "name",
+  "need",
+  "budget_myr",
+  "quoted_price_myr",
+  "deadline",
+] as const;
 
 /** Save corrections from the lead page. Changed fields are locked against AI overwrites. */
-export async function updateLead(leadId: string, _prev: FormState, formData: FormData): Promise<FormState> {
+export async function updateLead(
+  leadId: string,
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
   void _prev;
   const supabase = await createClient();
 
@@ -100,7 +122,11 @@ export async function updateLead(leadId: string, _prev: FormState, formData: For
 
   const { error } = await supabase
     .from("leads")
-    .update({ ...next, locked_fields: [...locked], updated_at: new Date().toISOString() })
+    .update({
+      ...next,
+      locked_fields: [...locked],
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", leadId);
   if (error) return { error: "Could not save. Try again." };
 
@@ -111,15 +137,100 @@ export async function updateLead(leadId: string, _prev: FormState, formData: For
       .from("leads")
       .update({ follow_up_consent: agreed ? "yes" : "no" })
       .eq("id", leadId);
-    if (consentError) return { error: "Saved, but could not change the follow-up setting." };
+    if (consentError)
+      return { error: "Saved, but could not change the follow-up setting." };
   }
 
   revalidatePath("/dashboard", "layout");
   return { ok: true };
 }
 
+/** Save the WhatsApp phone number this business sends and receives from. */
+export async function saveWhatsAppConnection(
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  void _prev;
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Please sign in again." };
+
+  const phoneNumberId = String(formData.get("wa_phone_number_id") ?? "").trim();
+  const ownerNumber = String(formData.get("wa_owner_number") ?? "").trim();
+  if (!phoneNumberId)
+    return { error: "Add the phone number ID from Meta's WhatsApp Manager." };
+
+  const update: Record<string, string | null> = {
+    wa_phone_number_id: phoneNumberId,
+    wa_owner_number: ownerNumber || null,
+  };
+
+  // Secret fields are write-only in the UI (never pre-filled with the real value), so a blank
+  // box means "leave it as it is", not "clear it" — only an explicit checkbox does that.
+  const own = (key: string) => {
+    if (formData.get(`clear_${key}`) === "on") return null;
+    const v = String(formData.get(key) ?? "").trim();
+    return v || undefined;
+  };
+  const appSecret = own("wa_app_secret");
+  const accessToken = own("wa_access_token");
+  const verifyToken = own("wa_verify_token");
+  if (appSecret !== undefined) update.wa_app_secret = appSecret;
+  if (accessToken !== undefined) update.wa_access_token = accessToken;
+  if (verifyToken !== undefined) update.wa_verify_token = verifyToken;
+
+  const { error } = await supabase
+    .from("businesses")
+    .update(update)
+    .eq("owner_id", user.id);
+
+  if (error) {
+    // The phone number ID and verify token must each be unique across businesses.
+    if (error.code === "23505" && error.message.includes("wa_verify_token")) {
+      return {
+        error:
+          "That verify token is already used by another business. Pick a different one.",
+      };
+    }
+    if (error.code === "23505") {
+      return {
+        error: "That phone number is already connected to another business.",
+      };
+    }
+    return { error: "Could not save. Try again." };
+  }
+
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
+/**
+ * Turn a Postgres/PostgREST error into something an owner (or whoever is setting this up) can act
+ * on. A missing column or table almost always means a migration was skipped, so say that plainly
+ * instead of a generic "try again" that never gets better.
+ */
+function dbErrorMessage(
+  prefix: string,
+  error: { code?: string; message: string },
+): string {
+  if (
+    error.code === "42703" ||
+    error.code === "PGRST204" ||
+    error.code === "42P01" ||
+    error.code === "PGRST205"
+  ) {
+    return `${prefix}: the database is missing something this version needs (${error.message}). Run the latest supabase/migrations files in order.`;
+  }
+  return `${prefix}: ${error.message}`;
+}
+
 /** Save the auto-reply switch and the facts the assistant may use. */
-export async function saveSettings(_prev: FormState, formData: FormData): Promise<FormState> {
+export async function saveSettings(
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
   void _prev;
   const supabase = await createClient();
   const {
@@ -134,16 +245,21 @@ export async function saveSettings(_prev: FormState, formData: FormData): Promis
 
   // business_facts (the knowledge base's "Other notes") is saved from the Knowledge base page,
   // not here, so this never overwrites it with an empty value.
+  const replyMode =
+    formData.get("reply_mode") === "approve" ? "approve" : "auto";
   const { error } = await supabase
     .from("businesses")
     .update({
       auto_reply: formData.get("auto_reply") === "on",
+      reply_mode: replyMode,
       tone_notes: text("tone_notes"),
       payment_details: text("payment_details"),
     })
     .eq("owner_id", user.id);
-  if (error) return { error: "Could not save. Try again." };
-
+  if (error) {
+    console.error("saveSettings failed", error.code, error.message);
+    return { error: `Could not save: ${error.message}` };
+  }
   revalidatePath("/dashboard", "layout");
   return { ok: true };
 }
@@ -152,12 +268,19 @@ type Db = Awaited<ReturnType<typeof createClient>>;
 
 interface Context {
   lead: Lead & { business_id: string };
-  business: { wa_phone_number_id: string; tone_notes: string | null };
+  business: {
+    wa_phone_number_id: string;
+    tone_notes: string | null;
+    wa_access_token: string | null;
+  };
   messages: ChatMessage[];
 }
 
 /** Load a lead with its business and recent chat. Returns an error message if something is missing. */
-async function loadContext(supabase: Db, leadId: string): Promise<Context | string> {
+async function loadContext(
+  supabase: Db,
+  leadId: string,
+): Promise<Context | string> {
   const { data: leadRow } = await supabase
     .from("leads")
     .select(`${LEAD_COLUMNS}, business_id`)
@@ -168,10 +291,11 @@ async function loadContext(supabase: Db, leadId: string): Promise<Context | stri
 
   const { data: business } = await supabase
     .from("businesses")
-    .select("wa_phone_number_id, tone_notes")
+    .select("wa_phone_number_id, tone_notes, wa_access_token")
     .eq("id", lead.business_id)
     .single();
-  if (!business?.wa_phone_number_id) return "Could not find the WhatsApp number to send from.";
+  if (!business?.wa_phone_number_id)
+    return "Could not find the WhatsApp number to send from.";
 
   const { data: rows } = await supabase
     .from("messages")
@@ -180,9 +304,12 @@ async function loadContext(supabase: Db, leadId: string): Promise<Context | stri
     .order("sent_at", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(30);
-  const messages: ChatMessage[] = [...(rows ?? [])]
-    .reverse()
-    .map((r) => ({ direction: r.direction, body: r.body ?? "", sentAt: r.sent_at, source: r.source }));
+  const messages: ChatMessage[] = [...(rows ?? [])].reverse().map((r) => ({
+    direction: r.direction,
+    body: r.body ?? "",
+    sentAt: r.sent_at,
+    source: r.source,
+  }));
 
   return { lead, business, messages };
 }
@@ -209,7 +336,12 @@ async function deliver(
 ): Promise<FormState> {
   let sent;
   try {
-    sent = await sendWhatsAppText(ctx.business.wa_phone_number_id, ctx.lead.wa_contact_number, body);
+    sent = await sendWhatsAppText(
+      ctx.business.wa_phone_number_id,
+      ctx.lead.wa_contact_number,
+      body,
+      ctx.business.wa_access_token,
+    );
   } catch (err) {
     console.error("Send failed", err);
     return {
@@ -247,12 +379,18 @@ async function deliver(
   revalidatePath("/dashboard", "layout");
   return {
     ok: true,
-    notice: sent.dry ? "Test mode: saved in the conversation, not delivered to WhatsApp." : undefined,
+    notice: sent.dry
+      ? "Test mode: saved in the conversation, not delivered to WhatsApp."
+      : undefined,
   };
 }
 
 /** One click: the owner has received the payment. The assistant confirms the order to the customer. */
-export async function confirmPayment(leadId: string, _prev: FormState, _formData: FormData): Promise<FormState> {
+export async function confirmPayment(
+  leadId: string,
+  _prev: FormState,
+  _formData: FormData,
+): Promise<FormState> {
   void _prev;
   void _formData;
   const supabase = await createClient();
@@ -280,20 +418,36 @@ export async function confirmPayment(leadId: string, _prev: FormState, _formData
 
   // The order is paid: mark it won, and lock the stage so the AI does not reopen it.
   const locked = [...new Set([...(ctx.lead.locked_fields ?? []), "stage"])];
-  const result = await deliver(supabase, ctx, body, "bot", { stage: "won", locked_fields: locked });
+  const result = await deliver(supabase, ctx, body, "bot", {
+    stage: "won",
+    locked_fields: locked,
+  });
 
   if (result.ok) {
-    const { error } = await supabase.from("leads").update({ order_status: "paid" }).eq("id", leadId);
-    if (error) console.error("Could not mark the order as paid (is migration 0006 applied?)", error.message);
+    const { error } = await supabase
+      .from("leads")
+      .update({ order_status: "paid" })
+      .eq("id", leadId);
+    if (error)
+      console.error(
+        "Could not mark the order as paid (is migration 0006 applied?)",
+        error.message,
+      );
 
     // Queue the after-sale follow-ups for this order.
     const paidAt = new Date().toISOString();
     const { error: paidError } = await supabase
       .from("leads")
-      .update({ paid_at: paidAt, ...(askConsent ? { consent_asked_at: paidAt } : {}) })
+      .update({
+        paid_at: paidAt,
+        ...(askConsent ? { consent_asked_at: paidAt } : {}),
+      })
       .eq("id", leadId);
     if (paidError) {
-      console.error("Could not record the payment time (is migration 0007 applied?)", paidError.message);
+      console.error(
+        "Could not record the payment time (is migration 0007 applied?)",
+        paidError.message,
+      );
     } else if (followUpsOn) {
       await scheduleAfterPayment(supabase, {
         businessId: ctx.lead.business_id,
@@ -308,10 +462,17 @@ export async function confirmPayment(leadId: string, _prev: FormState, _formData
 }
 
 /** The owner types a decision. The assistant words it in the customer's language and sends it. */
-export async function answerHandoff(leadId: string, _prev: FormState, formData: FormData): Promise<FormState> {
+export async function answerHandoff(
+  leadId: string,
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
   void _prev;
   const note = String(formData.get("note") ?? "").trim();
-  if (!note) return { error: "Type your answer first, so the assistant knows what to say." };
+  if (!note)
+    return {
+      error: "Type your answer first, so the assistant knows what to say.",
+    };
 
   const supabase = await createClient();
   const ctx = await loadContext(supabase, leadId);
@@ -329,7 +490,10 @@ export async function answerHandoff(leadId: string, _prev: FormState, formData: 
     });
   } catch (err) {
     console.error("Answer failed", err);
-    return { error: "Could not write the message. The AI may be busy or out of free requests. Try again in a minute." };
+    return {
+      error:
+        "Could not write the message. The AI may be busy or out of free requests. Try again in a minute.",
+    };
   }
   if (!body) return { error: "The AI returned an empty message. Try again." };
 
@@ -344,8 +508,80 @@ export async function toggleAutoReply(next: boolean): Promise<FormState> {
   } = await supabase.auth.getUser();
   if (!user) return { error: "Please sign in again." };
 
-  const { error } = await supabase.from("businesses").update({ auto_reply: next }).eq("owner_id", user.id);
-  if (error) return { error: "Could not change the assistant. Try again." };
+  const { error } = await supabase
+    .from("businesses")
+    .update({ auto_reply: next })
+    .eq("owner_id", user.id);
+  if (error) {
+    console.error("toggleAutoReply failed", error.code, error.message);
+    return { error: `Could not change the assistant: ${error.message}` };
+  }
+
+  revalidatePath("/dashboard", "layout");
+  return { ok: true };
+}
+
+/** Send a draft the assistant wrote, exactly as written or edited first. Then clear the draft. */
+export async function sendDraftReply(
+  leadId: string,
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  void _prev;
+  const supabase = await createClient();
+
+  const { data: draft } = await supabase
+    .from("draft_replies")
+    .select("body, order_status, order_summary")
+    .eq("lead_id", leadId)
+    .maybeSingle();
+  if (!draft)
+    return {
+      error:
+        "This draft is no longer there — it may already have been sent or discarded.",
+    };
+
+  const edited = String(formData.get("body") ?? "").trim();
+  const body = edited || draft.body;
+  if (!body) return { error: "The draft is empty. Type a reply first." };
+
+  const ctx = await loadContext(supabase, leadId);
+  if (typeof ctx === "string") return { error: ctx };
+
+  // A paid order stays paid even if this draft was written before the owner marked it paid.
+  const extra: Record<string, unknown> = {};
+  if (draft.order_status) {
+    extra.order_status =
+      ctx.lead.order_status === "paid" && draft.order_status === "confirmed"
+        ? "paid"
+        : draft.order_status;
+    extra.order_summary = draft.order_summary ?? ctx.lead.order_summary ?? null;
+  }
+
+  const result = await deliver(supabase, ctx, body, "bot", extra);
+  if (result.ok) {
+    const { error } = await supabase
+      .from("draft_replies")
+      .delete()
+      .eq("lead_id", leadId);
+    if (error)
+      console.error(
+        "Sent the draft but could not clear it",
+        leadId,
+        error.message,
+      );
+  }
+  return result;
+}
+
+/** The owner decides not to send this draft. The customer's messages are still there to answer by hand. */
+export async function discardDraftReply(leadId: string): Promise<FormState> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("draft_replies")
+    .delete()
+    .eq("lead_id", leadId);
+  if (error) return { error: "Could not discard the draft. Try again." };
 
   revalidatePath("/dashboard", "layout");
   return { ok: true };

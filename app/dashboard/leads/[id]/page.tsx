@@ -37,6 +37,10 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
     .order("created_at", { ascending: true })
     .limit(300);
 
+  // Present only when reply_mode is "approve" and the assistant has something waiting for a
+  // decision. Harmless to always look: no row exists at all in "auto" mode.
+  const { data: draftRow } = await supabase.from("draft_replies").select("body").eq("lead_id", id).maybeSingle();
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <ChatHeader lead={lead} />
@@ -56,6 +60,7 @@ export default async function LeadPage({ params }: { params: Promise<{ id: strin
               }
             : null
         }
+        draft={draftRow ? { leadId: lead.id, body: draftRow.body } : null}
       />
       <StatusBar
         pending={lead.pending_decision}

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { MessagesSquare, TriangleAlert } from "lucide-react";
 import { SubmitButton } from "@/components/SubmitButton";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,7 +32,15 @@ export default async function LoginPage({
                 <Input id="email" name="email" type="email" required autoComplete="email" />
               </div>
               <div className="grid gap-1.5">
-                <Label htmlFor="password">Password</Label>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password">Password</Label>
+                  <Link
+                    href="/login/forgot-password"
+                    className="text-sm text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
                 <Input id="password" name="password" type="password" required autoComplete="current-password" />
               </div>
 
@@ -46,6 +55,13 @@ export default async function LoginPage({
                 Sign in
               </SubmitButton>
             </form>
+
+            <p className="mt-4 text-center text-sm text-muted-foreground">
+              New here?{" "}
+              <Link href="/signup" className="font-medium text-foreground underline underline-offset-2">
+                Create an account
+              </Link>
+            </p>
           </CardContent>
         </Card>
       </div>

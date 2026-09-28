@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { LeadCard } from "@/components/LeadCard";
 import { createClient } from "@/lib/supabase/server";
+import { getOrCreateBusiness } from "@/lib/business";
 import { LEAD_COLUMNS, STAGES, STAGE_DOT, STAGE_LABEL, rm, type Lead } from "@/lib/leads";
 
 export default async function PipelinePage() {
@@ -10,11 +11,11 @@ export default async function PipelinePage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: business } = await supabase
-    .from("businesses")
-    .select("id, cold_after_days")
-    .eq("owner_id", user.id)
-    .maybeSingle();
+  const business = await getOrCreateBusiness<{ id: string; cold_after_days: number }>(
+    supabase,
+    user,
+    "id, cold_after_days",
+  );
   if (!business) redirect("/dashboard");
 
   const { data: leadRows } = await supabase

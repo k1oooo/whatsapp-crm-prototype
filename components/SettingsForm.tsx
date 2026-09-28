@@ -2,11 +2,17 @@
 
 import Link from "next/link";
 import { useTransition, type FormEvent } from "react";
-import { ArrowRight, Bot, BookOpen, Landmark, Loader2 } from "lucide-react";
+import { ArrowRight, Bot, BookOpen, Landmark, Loader2, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 import { saveSettings } from "@/app/dashboard/actions";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -14,14 +20,18 @@ import { Textarea } from "@/components/ui/textarea";
 
 export function SettingsForm({
   autoReply,
+  replyMode,
   toneNotes,
   paymentDetails,
   testMode,
+  waConnected,
 }: {
   autoReply: boolean;
+  replyMode: "auto" | "approve";
   toneNotes: string;
   paymentDetails: string;
   testMode: boolean;
+  waConnected: boolean;
 }) {
   const [pending, start] = useTransition();
 
@@ -40,25 +50,88 @@ export function SettingsForm({
       <Card>
         <CardHeader className="flex-row items-start gap-4">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
+            <MessageCircle className="size-5" aria-hidden />
+          </span>
+          <div className="flex-1">
+            <CardTitle>WhatsApp connection</CardTitle>
+            <CardDescription className="mt-1">
+              {waConnected
+                ? "Connected. Update the number or webhook here."
+                : "Not connected yet — no messages will come in until this is set up."}
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Button asChild variant="outline">
+            <Link href="/dashboard/settings/whatsapp">
+              {waConnected ? "Manage connection" : "Connect WhatsApp"}
+              <ArrowRight />
+            </Link>
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex-row items-start gap-4">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
             <Bot className="size-5" aria-hidden />
           </span>
           <div className="flex-1">
             <CardTitle>Answer customers automatically</CardTitle>
             <CardDescription className="mt-1">
-              The assistant replies on its own. It hands the chat to you for discounts, payments to check, and
-              anything it is not sure about.
+              The assistant replies on its own. It hands the chat to you for
+              discounts, payments to check, and anything it is not sure about.
             </CardDescription>
           </div>
-          <Switch name="auto_reply" defaultChecked={autoReply} aria-label="Answer customers automatically" />
+          <Switch
+            name="auto_reply"
+            defaultChecked={autoReply}
+            aria-label="Answer customers automatically"
+          />
         </CardHeader>
         {testMode && (
           <CardContent>
             <p className="rounded-lg bg-warning px-4 py-3 text-sm text-warning-foreground">
-              Test mode: replies are saved in the chat but not sent to WhatsApp. Set WHATSAPP_SEND_MODE=live and
-              WHATSAPP_ACCESS_TOKEN to send for real.
+              Test mode: replies are saved in the chat but not sent to WhatsApp.
+              Set WHATSAPP_SEND_MODE=live and WHATSAPP_ACCESS_TOKEN to send for
+              real.
             </p>
           </CardContent>
         )}
+        <CardContent className="flex flex-col gap-2 border-t pt-4">
+          <p className="text-sm font-medium">When automatic replies are on, above</p>
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 has-[:checked]:border-primary has-[:checked]:bg-secondary">
+            <input
+              type="radio"
+              name="reply_mode"
+              value="auto"
+              defaultChecked={replyMode !== "approve"}
+              className="mt-1"
+            />
+            <span>
+              <span className="block font-medium">AI replies automatically</span>
+              <span className="block text-sm text-muted-foreground">
+                Sends the moment it has an answer. Fastest for the customer.
+              </span>
+            </span>
+          </label>
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 has-[:checked]:border-primary has-[:checked]:bg-secondary">
+            <input
+              type="radio"
+              name="reply_mode"
+              value="approve"
+              defaultChecked={replyMode === "approve"}
+              className="mt-1"
+            />
+            <span>
+              <span className="block font-medium">AI drafts, I approve every send</span>
+              <span className="block text-sm text-muted-foreground">
+                Every reply waits in the chat for you to send or edit first. Slower, but nothing
+                goes to a customer without you seeing it.
+              </span>
+            </span>
+          </label>
+        </CardContent>
       </Card>
 
       <Card>
@@ -69,8 +142,8 @@ export function SettingsForm({
           <div className="flex-1">
             <CardTitle>What the assistant knows</CardTitle>
             <CardDescription className="mt-1">
-              Menu, prices, location, hours and FAQ now live on their own page, organised into sections instead of
-              one long text box.
+              Menu, prices, location, hours and FAQ now live on their own page,
+              organised into sections instead of one long text box.
             </CardDescription>
           </div>
         </CardHeader>
@@ -92,7 +165,8 @@ export function SettingsForm({
           <div className="flex-1">
             <CardTitle>Payment details</CardTitle>
             <CardDescription className="mt-1">
-              Sent word for word to a customer right after they confirm an order.
+              Sent word for word to a customer right after they confirm an
+              order.
             </CardDescription>
           </div>
         </CardHeader>
@@ -102,7 +176,9 @@ export function SettingsForm({
             defaultValue={paymentDetails}
             rows={4}
             aria-label="Payment details"
-            placeholder={"Bank transfer to:\nMaybank 1234 5678 9012\nAccount name: Test Bakery"}
+            placeholder={
+              "Bank transfer to:\nMaybank 1234 5678 9012\nAccount name: Test Bakery"
+            }
           />
         </CardContent>
       </Card>
@@ -110,7 +186,9 @@ export function SettingsForm({
       <Card>
         <CardHeader>
           <CardTitle>How you talk to customers</CardTitle>
-          <CardDescription>Optional. One line about your style.</CardDescription>
+          <CardDescription>
+            Optional. One line about your style.
+          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-1.5">
           <Label htmlFor="tone_notes" className="sr-only">

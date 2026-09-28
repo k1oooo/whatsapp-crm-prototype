@@ -1,24 +1,30 @@
 // Sending WhatsApp messages through the Cloud API.
 // Default is dry mode: nothing is sent, so you can test everything with the simulator.
-// To send for real, set WHATSAPP_SEND_MODE=live and WHATSAPP_ACCESS_TOKEN.
+// To send for real: set WHATSAPP_SEND_MODE=live, and either put an access token on the
+// business (Settings > Connect WhatsApp) or set the shared WHATSAPP_ACCESS_TOKEN env var.
 
 export interface SendResult {
   id: string;
   dry: boolean;
 }
 
-export function sendMode(): "live" | "dry" {
-  return process.env.WHATSAPP_SEND_MODE === "live" && process.env.WHATSAPP_ACCESS_TOKEN
-    ? "live"
-    : "dry";
+/** The token actually used for a business: their own, or the deployment's shared one. */
+function resolveToken(businessToken?: string | null): string | undefined {
+  return businessToken || process.env.WHATSAPP_ACCESS_TOKEN;
+}
+
+export function sendMode(businessToken?: string | null): "live" | "dry" {
+  return process.env.WHATSAPP_SEND_MODE === "live" && !!resolveToken(businessToken) ? "live" : "dry";
 }
 
 export async function sendWhatsAppText(
   phoneNumberId: string,
   to: string,
   body: string,
+  accessToken?: string | null,
 ): Promise<SendResult> {
-  if (sendMode() === "dry") {
+  const token = resolveToken(accessToken);
+  if (sendMode(accessToken) === "dry") {
     return { id: `dry.${crypto.randomUUID()}`, dry: true };
   }
 
@@ -27,7 +33,7 @@ export async function sendWhatsAppText(
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
+      authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({
       messaging_product: "whatsapp",
@@ -56,8 +62,10 @@ export async function sendWhatsAppTemplate(
   templateName: string,
   languageCode: string,
   params: string[],
+  accessToken?: string | null,
 ): Promise<SendResult> {
-  if (sendMode() === "dry") {
+  const token = resolveToken(accessToken);
+  if (sendMode(accessToken) === "dry") {
     return { id: `dry.${crypto.randomUUID()}`, dry: true };
   }
   if (!templateName) throw new Error("No template name set for this follow-up");
@@ -67,7 +75,7 @@ export async function sendWhatsAppTemplate(
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
+      authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({
       messaging_product: "whatsapp",

@@ -11,7 +11,10 @@ import { signOut } from "@/app/login/actions";
 import { cn } from "@/lib/utils";
 
 const fade = (collapsed: boolean) =>
-  cn("transition-opacity duration-200", collapsed ? "opacity-0" : "opacity-100 delay-100");
+  cn(
+    "transition-opacity duration-200",
+    collapsed ? "opacity-0" : "opacity-100 delay-100",
+  );
 
 // Open and closed use the exact same layout. Only the sidebar's width changes, which reveals or
 // hides the text. Icons and the logo never move, so nothing twitches.
@@ -54,35 +57,44 @@ export function Sidebar({
               }
             }}
             title={collapsed ? "Expand sidebar" : "Go to the inbox"}
-            aria-label={collapsed ? "Expand sidebar" : `${businessName}, go to the inbox`}
+            aria-label={
+              collapsed ? "Expand sidebar" : `${businessName}, go to the inbox`
+            }
             className="group/logo flex h-11 w-full items-center overflow-hidden rounded-xl whitespace-nowrap outline-none"
           >
             <span className="flex size-11 shrink-0 items-center justify-center">
               <span
                 className={cn(
                   "relative flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-colors duration-200 group-focus-visible/logo:ring-2 group-focus-visible/logo:ring-ring/50",
-                  collapsed && "group-hover/logo:bg-secondary group-hover/logo:text-foreground",
+                  collapsed &&
+                    "group-hover/logo:bg-secondary group-hover/logo:text-foreground",
                 )}
               >
                 <MessagesSquare
                   className={cn(
                     "absolute size-5 transition-opacity duration-200",
-                    collapsed && "group-hover/logo:opacity-0 group-focus-visible/logo:opacity-0",
+                    collapsed &&
+                      "group-hover/logo:opacity-0 group-focus-visible/logo:opacity-0",
                   )}
                   aria-hidden
                 />
                 <PanelLeftOpen
                   className={cn(
                     "absolute size-5 opacity-0 transition-opacity duration-200",
-                    collapsed && "group-hover/logo:opacity-100 group-focus-visible/logo:opacity-100",
+                    collapsed &&
+                      "group-hover/logo:opacity-100 group-focus-visible/logo:opacity-100",
                   )}
                   aria-hidden
                 />
               </span>
             </span>
             <span aria-hidden className={cn("min-w-0 pl-2", fade(collapsed))}>
-              <span className="block truncate font-heading text-lg leading-tight font-bold">{businessName}</span>
-              <span className="block text-xs text-muted-foreground">WhatsApp orders</span>
+              <span className="block truncate font-heading text-lg leading-tight font-bold">
+                {businessName}
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                WhatsApp orders
+              </span>
             </span>
           </Link>
 
@@ -94,7 +106,10 @@ export function Sidebar({
               inert={collapsed}
               aria-label="Collapse sidebar"
               title="Collapse sidebar"
-              className={cn("pointer-events-auto size-9 text-muted-foreground", fade(collapsed))}
+              className={cn(
+                "pointer-events-auto size-9 text-muted-foreground",
+                fade(collapsed),
+              )}
             >
               <PanelLeftClose />
             </Button>

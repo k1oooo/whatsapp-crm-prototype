@@ -32,6 +32,7 @@
   --warning-border: #ebcb94;
   --info: #e4eef9;
   --info-foreground: #2f6db5;
+  --info-border: #b9d3ec;
   --success: #d3efc4;
   --success-foreground: #1c5b2a;
   --bubble-owner: #d3efc4;
@@ -72,6 +73,7 @@
   --color-warning-border: var(--warning-border);
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
+  --color-info-border: var(--info-border);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
   --color-bubble-owner: var(--bubble-owner);
