@@ -16,8 +16,6 @@ const fade = (collapsed: boolean) =>
     collapsed ? "opacity-0" : "opacity-100 delay-100",
   );
 
-// Open and closed use the exact same layout. Only the sidebar's width changes, which reveals or
-// hides the text. Icons and the logo never move, so nothing twitches.
 export function Sidebar({
   businessName,
   autoReply,
@@ -29,7 +27,6 @@ export function Sidebar({
   needsYou: number;
   defaultCollapsed: boolean;
 }) {
-  // The choice is kept in a cookie, so the server draws the sidebar the way you left it.
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
 
   function toggle() {
@@ -41,8 +38,9 @@ export function Sidebar({
   return (
     <aside
       className={cn(
-        "hidden shrink-0 overflow-clip border-r bg-card transition-[width] duration-300 ease-in-out motion-reduce:transition-none lg:block",
-        collapsed ? "w-16" : "w-64",
+        // Changed lg:block to md:block so tablets get the sidebar instead of the bottom nav
+        "hidden shrink-0 overflow-clip border-r bg-card transition-[width] duration-300 ease-in-out motion-reduce:transition-none md:block",
+        collapsed ? "w-16" : "w-56 lg:w-64", // Slightly narrower on tablet when open
       )}
     >
       <div className="flex h-full flex-col gap-6 p-2.5">
@@ -50,7 +48,6 @@ export function Sidebar({
           <Link
             href="/dashboard"
             onClick={(e) => {
-              // Closed, the logo is the "open the sidebar" button.
               if (collapsed) {
                 e.preventDefault();
                 toggle();
@@ -89,16 +86,16 @@ export function Sidebar({
               </span>
             </span>
             <span aria-hidden className={cn("min-w-0 pl-2", fade(collapsed))}>
-              <span className="block truncate font-heading text-lg leading-tight font-bold">
+              <span className="block truncate font-heading text-[15px] lg:text-lg leading-tight font-bold">
                 {businessName}
               </span>
-              <span className="block text-xs text-muted-foreground">
+              <span className="block text-[11px] lg:text-xs text-muted-foreground">
                 WhatsApp orders
               </span>
             </span>
           </Link>
 
-          <div className="pointer-events-none absolute inset-y-0 left-0 flex w-[236px] items-center justify-end">
+          <div className="pointer-events-none absolute inset-y-0 left-0 flex w-full items-center justify-end">
             <Button
               variant="ghost"
               size="icon"
@@ -111,7 +108,7 @@ export function Sidebar({
                 fade(collapsed),
               )}
             >
-              <PanelLeftClose />
+              <PanelLeftClose className="size-4 lg:size-5" />
             </Button>
           </div>
         </div>

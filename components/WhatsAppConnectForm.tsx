@@ -1,16 +1,25 @@
 "use client";
 
 import { useTransition, type FormEvent } from "react";
-import { CheckCircle2, Loader2, MessageCircle, ShieldQuestion } from "lucide-react";
+import {
+  CheckCircle2,
+  Loader2,
+  MessageCircle,
+  ShieldQuestion,
+} from "lucide-react";
 import { toast } from "sonner";
 import { saveWhatsAppConnection } from "@/app/dashboard/actions";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-/** A secret field that never shows its real value: blank on load, with a status line saying
- * whether one is already saved, and a "remove it" checkbox to fall back to the shared default. */
 function SecretField({
   name,
   label,
@@ -24,25 +33,40 @@ function SecretField({
 }) {
   return (
     <div className="grid gap-1.5">
-      <Label htmlFor={name}>{label}</Label>
-      <Input id={name} name={name} type="password" autoComplete="off" placeholder={placeholder} />
-      <div className="flex items-center justify-between text-sm text-muted-foreground">
+      <Label htmlFor={name} className="text-sm">
+        {label}
+      </Label>
+      <Input
+        id={name}
+        name={name}
+        type="password"
+        autoComplete="off"
+        placeholder={placeholder}
+      />
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs sm:text-sm text-muted-foreground">
         <span className="flex items-center gap-1.5">
           {hasValue ? (
             <>
-              <CheckCircle2 className="size-3.5 text-primary" aria-hidden />
+              <CheckCircle2
+                className="size-3.5 text-primary shrink-0"
+                aria-hidden
+              />
               Set — leave blank to keep it
             </>
           ) : (
             <>
-              <ShieldQuestion className="size-3.5" aria-hidden />
+              <ShieldQuestion className="size-3.5 shrink-0" aria-hidden />
               Not set — using the shared default
             </>
           )}
         </span>
         {hasValue && (
-          <label className="flex items-center gap-1.5">
-            <input type="checkbox" name={`clear_${name}`} className="size-3.5" />
+          <label className="flex items-center gap-1.5 cursor-pointer">
+            <input
+              type="checkbox"
+              name={`clear_${name}`}
+              className="size-3.5"
+            />
             Remove
           </label>
         )}
@@ -87,27 +111,36 @@ export function WhatsAppConnectForm({
   return (
     <form onSubmit={submit} className="flex flex-col gap-6">
       <Card>
-        <CardHeader className="flex-row items-start gap-4">
+        <CardHeader className="flex flex-col sm:flex-row items-start gap-3 sm:gap-4">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
             <MessageCircle className="size-5" aria-hidden />
           </span>
-          <div className="flex-1">
-            <CardTitle>1. Set up your app in Meta</CardTitle>
-            <CardDescription className="mt-1">
-              In your Meta developer app &gt; WhatsApp &gt; Configuration, paste this as the
-              callback URL and subscribe to the <code>messages</code> field. Set any verify token
-              you like — either put it in this deployment&apos;s shared{" "}
-              <code>WHATSAPP_VERIFY_TOKEN</code>, or save your own below if you&apos;re using your
-              own Meta app.
+          <div className="flex-1 min-w-0">
+            <CardTitle className="text-lg">
+              1. Set up your app in Meta
+            </CardTitle>
+            <CardDescription className="mt-1 text-xs sm:text-sm leading-relaxed">
+              In your Meta developer app &gt; WhatsApp &gt; Configuration, paste
+              this as the callback URL and subscribe to the{" "}
+              <code>messages</code> field. Set any verify token you like —
+              either put it in this deployment&apos;s shared{" "}
+              <code>WHATSAPP_VERIFY_TOKEN</code>, or save your own below if
+              you&apos;re using your own Meta app.
             </CardDescription>
           </div>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center gap-2">
-            <code className="min-w-0 flex-1 truncate rounded-md bg-muted px-3 py-2 text-sm">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            <code className="min-w-0 flex-1 break-all rounded-md bg-muted px-3 py-2 text-xs sm:text-sm text-muted-foreground">
               {webhookUrl ?? "Deploy this app first to get a webhook URL"}
             </code>
-            <Button type="button" variant="outline" onClick={copyWebhook} disabled={!webhookUrl}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={copyWebhook}
+              disabled={!webhookUrl}
+              className="shrink-0"
+            >
               Copy
             </Button>
           </div>
@@ -116,10 +149,10 @@ export function WhatsAppConnectForm({
 
       <Card>
         <CardHeader>
-          <CardTitle>2. Add your number</CardTitle>
-          <CardDescription>
-            From WhatsApp Manager &gt; API Setup, copy the Phone number ID for the number you want
-            to use.
+          <CardTitle className="text-lg">2. Add your number</CardTitle>
+          <CardDescription className="text-xs sm:text-sm">
+            From WhatsApp Manager &gt; API Setup, copy the Phone number ID for
+            the number you want to use.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -134,7 +167,9 @@ export function WhatsAppConnectForm({
             />
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="wa_owner_number">Your own WhatsApp number (optional)</Label>
+            <Label htmlFor="wa_owner_number">
+              Your own WhatsApp number (optional)
+            </Label>
             <Input
               id="wa_owner_number"
               name="wa_owner_number"
@@ -147,11 +182,14 @@ export function WhatsAppConnectForm({
 
       <Card>
         <CardHeader>
-          <CardTitle>3. Bring your own Meta app (optional)</CardTitle>
-          <CardDescription>
-            Skip this if you&apos;re fine sharing this deployment&apos;s Meta app with other
-            businesses on it. Fill these in if you&apos;d rather use your own app, so your access
-            token and signing secret are never shared with anyone else&apos;s number.
+          <CardTitle className="text-lg">
+            3. Bring your own Meta app (optional)
+          </CardTitle>
+          <CardDescription className="text-xs sm:text-sm leading-relaxed">
+            Skip this if you&apos;re fine sharing this deployment&apos;s Meta
+            app with other businesses on it. Fill these in if you&apos;d rather
+            use your own app, so your access token and signing secret are never
+            shared with anyone else&apos;s number.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -178,17 +216,25 @@ export function WhatsAppConnectForm({
 
       <Card>
         <CardHeader>
-          <CardTitle>4. Go live when you&apos;re ready</CardTitle>
-          <CardDescription>
-            Messages are saved here but not sent to WhatsApp until <code>WHATSAPP_SEND_MODE=live</code>{" "}
-            is set on the deployment, and a valid access token is available — either yours above,
-            or the shared <code>WHATSAPP_ACCESS_TOKEN</code>.
+          <CardTitle className="text-lg">
+            4. Go live when you&apos;re ready
+          </CardTitle>
+          <CardDescription className="text-xs sm:text-sm leading-relaxed">
+            Messages are saved here but not sent to WhatsApp until{" "}
+            <code>WHATSAPP_SEND_MODE=live</code> is set on the deployment, and a
+            valid access token is available — either yours above, or the shared{" "}
+            <code>WHATSAPP_ACCESS_TOKEN</code>.
           </CardDescription>
         </CardHeader>
       </Card>
 
       <div className="sticky bottom-4 z-10 flex justify-end rounded-xl border bg-card/95 p-3 shadow-md backdrop-blur">
-        <Button type="submit" size="lg" disabled={pending}>
+        <Button
+          type="submit"
+          size="lg"
+          disabled={pending}
+          className="w-full sm:w-auto"
+        >
           {pending && <Loader2 className="animate-spin" />}
           Save
         </Button>

@@ -95,5 +95,6 @@ export default async function MessagingLayout({
       return (b.lastAt ?? "").localeCompare(a.lastAt ?? "");
     });
 
+  // Reverted back to directly returning the DashboardFrame
   return <DashboardFrame chats={chats}>{children}</DashboardFrame>;
 }

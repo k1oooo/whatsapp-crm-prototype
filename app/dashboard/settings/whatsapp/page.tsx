@@ -17,7 +17,11 @@ export default async function ConnectWhatsAppPage() {
     wa_app_secret: string | null;
     wa_access_token: string | null;
     wa_verify_token: string | null;
-  }>(supabase, user, "wa_phone_number_id, wa_owner_number, wa_app_secret, wa_access_token, wa_verify_token");
+  }>(
+    supabase,
+    user,
+    "wa_phone_number_id, wa_owner_number, wa_app_secret, wa_access_token, wa_verify_token",
+  );
   if (!business) redirect("/dashboard");
 
   const h = await headers();
@@ -26,22 +30,26 @@ export default async function ConnectWhatsAppPage() {
   const webhookUrl = host ? `${proto}://${host}/api/whatsapp/webhook` : null;
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6 p-4 sm:p-6">
-      <header>
-        <h1 className="font-heading text-3xl font-bold">Connect WhatsApp</h1>
-        <p className="mt-2 text-lg text-muted-foreground">
-          Link your WhatsApp Business number so messages show up here.
-        </p>
-      </header>
-      <WhatsAppConnectForm
-        phoneNumberId={business.wa_phone_number_id ?? ""}
-        ownerNumber={business.wa_owner_number ?? ""}
-        // Secret values themselves are never sent to the browser — only whether one is set.
-        hasAppSecret={!!business.wa_app_secret}
-        hasAccessToken={!!business.wa_access_token}
-        hasVerifyToken={!!business.wa_verify_token}
-        webhookUrl={webhookUrl}
-      />
+    <div className="flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4 pb-24 md:gap-6 sm:p-6 lg:p-8">
+        <header>
+          <h1 className="font-heading text-2xl md:text-3xl font-bold">
+            Connect WhatsApp
+          </h1>
+          <p className="mt-1 md:mt-2 text-sm md:text-lg text-muted-foreground">
+            Link your WhatsApp Business number so messages show up here.
+          </p>
+        </header>
+        <WhatsAppConnectForm
+          phoneNumberId={business.wa_phone_number_id ?? ""}
+          ownerNumber={business.wa_owner_number ?? ""}
+          // Secret values themselves are never sent to the browser — only whether one is set.
+          hasAppSecret={!!business.wa_app_secret}
+          hasAccessToken={!!business.wa_access_token}
+          hasVerifyToken={!!business.wa_verify_token}
+          webhookUrl={webhookUrl}
+        />
+      </div>
     </div>
   );
 }

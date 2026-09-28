@@ -56,13 +56,13 @@ export default async function DashboardLayout({
 
   if (!business) {
     return (
-      <main className="flex min-h-dvh items-center justify-center p-6">
-        <Card className="max-w-lg">
+      <main className="flex min-h-dvh items-center justify-center p-4 md:p-6">
+        <Card className="max-w-lg w-full">
           <CardHeader>
-            <CardTitle className="text-2xl">
+            <CardTitle className="text-xl md:text-2xl">
               Could not set up your business
             </CardTitle>
-            <CardDescription>
+            <CardDescription className="text-sm md:text-base">
               Something went wrong creating your workspace. Refresh the page, or
               contact support if this keeps happening.
             </CardDescription>
@@ -72,7 +72,6 @@ export default async function DashboardLayout({
     );
   }
 
-  // Optimized: We only need the exact count for the navigation badges in the sidebar
   const { count: needsYouCount } = await supabase
     .from("leads")
     .select("id", { count: "exact", head: true })
@@ -105,49 +104,62 @@ export default async function DashboardLayout({
         {!subscriptionActive && (
           <Link
             href="/dashboard/billing"
-            className="flex shrink-0 items-center justify-center gap-2 bg-warning px-4 py-2 text-center text-sm font-medium text-warning-foreground hover:underline"
+            className="flex shrink-0 items-center justify-center gap-1.5 md:gap-2 bg-warning p-2.5 md:px-4 md:py-2 text-center text-[11px] md:text-sm font-medium leading-tight text-warning-foreground hover:underline"
           >
-            <CreditCard className="size-4 shrink-0" aria-hidden />
-            The assistant is paused. {subscriptionBlockedNote(subscription)}
+            <CreditCard className="size-3.5 md:size-4 shrink-0" aria-hidden />
+            <span>
+              The assistant is paused. {subscriptionBlockedNote(subscription)}
+            </span>
           </Link>
         )}
         {trialDaysLeftCount !== null && trialDaysLeftCount <= 3 && (
           <Link
             href="/dashboard/billing"
-            className="flex shrink-0 items-center justify-center gap-2 bg-info px-4 py-2 text-center text-sm font-medium text-info-foreground hover:underline"
+            className="flex shrink-0 items-center justify-center gap-1.5 md:gap-2 bg-info p-2.5 md:px-4 md:py-2 text-center text-[11px] md:text-sm font-medium leading-tight text-info-foreground hover:underline"
           >
-            <CreditCard className="size-4 shrink-0" aria-hidden />
-            Your free trial ends in {trialDaysLeftCount}{" "}
-            {trialDaysLeftCount === 1 ? "day" : "days"}. Subscribe to keep the
-            assistant on.
+            <CreditCard className="size-3.5 md:size-4 shrink-0" aria-hidden />
+            <span>
+              Your free trial ends in {trialDaysLeftCount}{" "}
+              {trialDaysLeftCount === 1 ? "day" : "days"}. Subscribe to keep the
+              assistant on.
+            </span>
           </Link>
         )}
         {!business.wa_phone_number_id && (
           <Link
             href="/dashboard/settings/whatsapp"
-            className="flex shrink-0 items-center justify-center gap-2 bg-warning px-4 py-2 text-center text-sm font-medium text-warning-foreground hover:underline"
+            className="flex shrink-0 items-center justify-center gap-1.5 md:gap-2 bg-warning p-2.5 md:px-4 md:py-2 text-center text-[11px] md:text-sm font-medium leading-tight text-warning-foreground hover:underline"
           >
-            <MessageCircleWarning className="size-4 shrink-0" aria-hidden />
-            Connect WhatsApp to start receiving customer messages
+            <MessageCircleWarning
+              className="size-3.5 md:size-4 shrink-0"
+              aria-hidden
+            />
+            <span>Connect WhatsApp to start receiving customer messages</span>
           </Link>
         )}
         {business.wa_phone_number_id &&
           sendMode(business.wa_access_token) === "dry" && (
-            <div className="flex shrink-0 items-center justify-center gap-2 bg-info px-4 py-2 text-center text-sm font-medium text-info-foreground">
-              <FlaskConical className="size-4 shrink-0" aria-hidden />
-              Test mode: WhatsApp messages are not being sent to customers
+            <div className="flex shrink-0 items-center justify-center gap-1.5 md:gap-2 bg-info p-2.5 md:px-4 md:py-2 text-center text-[11px] md:text-sm font-medium leading-tight text-info-foreground">
+              <FlaskConical
+                className="size-3.5 md:size-4 shrink-0"
+                aria-hidden
+              />
+              <span>
+                Test mode: WhatsApp messages are not being sent to customers
+              </span>
             </div>
           )}
         {business.wa_phone_number_id &&
           sendMode(business.wa_access_token) === "live" && (
-            <div className="flex shrink-0 items-center justify-center gap-2 bg-success px-4 py-2 text-center text-sm font-medium text-success-foreground">
-              <Radio className="size-4 shrink-0" aria-hidden />
-              Live: messages are being sent to real customers on WhatsApp
+            <div className="flex shrink-0 items-center justify-center gap-1.5 md:gap-2 bg-success p-2.5 md:px-4 md:py-2 text-center text-[11px] md:text-sm font-medium leading-tight text-success-foreground">
+              <Radio className="size-3.5 md:size-4 shrink-0" aria-hidden />
+              <span>
+                Live: messages are being sent to real customers on WhatsApp
+              </span>
             </div>
           )}
 
-        {/* Render children directly instead of using DashboardFrame */}
-        <main className="min-h-0 flex-1 overflow-auto">{children}</main>
+        <main className="min-h-0 flex-1 flex flex-col">{children}</main>
 
         <MobileNav needsYou={needsYou} />
       </div>
