@@ -94,3 +94,20 @@
     @apply font-heading;
   }
 }
+
+@layer utilities {
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  /* Reserves the scrollbar's width whether or not a scrollbar is currently showing. Without this,
+     switching to content of a different height can make a scrollbar appear or disappear, which
+     narrows or widens everything inside the scroll container by the scrollbar's width — visible
+     as the whole page (header included) shifting sideways by a few pixels. */
+  .scroll-stable {
+    scrollbar-gutter: stable;
+  }
+}

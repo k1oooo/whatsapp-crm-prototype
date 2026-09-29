@@ -75,7 +75,7 @@ export default async function FollowUpsPage() {
 
   return (
     // FIXED: Added overflow-x-hidden here to strictly prevent the page from moving sideways
-    <div className="flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden">
+    <div className="flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden scroll-stable">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4 pb-24 md:gap-6 sm:p-6 lg:p-8">
         <header>
           <h1 className="font-heading text-2xl md:text-3xl font-bold">

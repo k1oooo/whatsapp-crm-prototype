@@ -9,6 +9,7 @@ import { EntryFormSheet } from "@/components/knowledge/entry-form-sheet";
 import { FactsPreview } from "@/components/knowledge/facts-preview";
 import { OtherNotesForm } from "@/components/knowledge/other-notes-form";
 import { Button } from "@/components/ui/button";
+import { TabSelect } from "@/components/ui/tab-select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KB_CATEGORIES, KB_CATEGORY_HINT, KB_CATEGORY_LABEL, type KbCategory, type KbEntry } from "@/lib/knowledge";
 
@@ -89,8 +90,17 @@ export function KnowledgeView({ entries, otherNotes }: { entries: KbEntry[]; oth
       )}
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as KbCategory)}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <TabsList className="flex-wrap">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          {/* Phones get a single tappable dropdown instead of a tab row (easy to mistap, and a
+              category name like "Menu and pricing" doesn't fit a small pill). Same value and
+              options as the desktop tabs below, just a different control for the same state. */}
+          <TabSelect
+            value={tab}
+            onValueChange={setTab}
+            aria-label="Knowledge base category"
+            options={KB_CATEGORIES.map((c) => ({ value: c, label: KB_CATEGORY_LABEL[c] }))}
+          />
+          <TabsList className="hidden min-w-0 sm:inline-flex sm:flex-1">
             {KB_CATEGORIES.map((c) => {
               const count = c === "other" ? undefined : entries.filter((e) => e.category === c).length;
               return (
@@ -101,7 +111,9 @@ export function KnowledgeView({ entries, otherNotes }: { entries: KbEntry[]; oth
               );
             })}
           </TabsList>
-          <FactsPreview />
+          <div className="flex shrink-0 sm:justify-end">
+            <FactsPreview />
+          </div>
         </div>
 
         {KB_CATEGORIES.filter((c) => c !== "other").map((c) => (

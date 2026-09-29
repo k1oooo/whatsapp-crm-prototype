@@ -19,7 +19,9 @@ import {
   ManageBillingButton,
   SubscribeButton,
 } from "@/components/billing/billing-buttons";
+import { SubscriptionDetails } from "@/components/billing/subscription-details";
 import { Card } from "@/components/ui/card";
+import { getBillingDetails } from "@/lib/billing-details";
 import {
   summarisePlan,
   TRIAL_DAYS,
@@ -143,17 +145,26 @@ export default async function BillingPage({
 
   const { data: subRow } = await supabase
     .from("subscriptions")
-    .select("status, trial_ends_at, current_period_end, stripe_customer_id")
+    .select(
+      "status, trial_ends_at, current_period_end, stripe_customer_id, stripe_subscription_id",
+    )
     .eq("business_id", business.id)
     .maybeSingle();
   const sub =
     (subRow as
-      | (SubscriptionInfo & { stripe_customer_id: string | null })
+      | (SubscriptionInfo & {
+          stripe_customer_id: string | null;
+          stripe_subscription_id: string | null;
+        })
       | null) ?? null;
 
   const configured = stripeConfigured();
   const plan = summarisePlan(sub);
   const price = await getPlanPrice();
+  const details = await getBillingDetails(
+    sub?.stripe_subscription_id ?? null,
+    sub?.stripe_customer_id ?? null,
+  );
   const tone = TONE[plan.kind];
   const Icon = tone.icon;
 
@@ -163,7 +174,7 @@ export default async function BillingPage({
   const confirming = checkout === "success" && plan.kind !== "active";
 
   return (
-    <div className="flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden">
+    <div className="flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden scroll-stable">
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 p-4 pb-24 md:gap-6 sm:p-6 lg:p-8">
         <header>
           <h1 className="font-heading text-2xl md:text-3xl font-bold">
@@ -293,6 +304,14 @@ export default async function BillingPage({
             </div>
           </div>
         </Card>
+
+        <SubscriptionDetails
+          kind={plan.kind}
+          price={price}
+          trialEndsAt={sub?.trial_ends_at ?? null}
+          currentPeriodEnd={sub?.current_period_end ?? null}
+          details={details}
+        />
 
         {/* The offer */}
         {canSubscribe && (

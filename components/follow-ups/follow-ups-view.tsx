@@ -26,6 +26,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { TabSelect } from "@/components/ui/tab-select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { FollowUpSettings } from "@/lib/follow-up-settings";
 import type { FeedbackItem, QueueItem } from "@/lib/follow-up-types";
@@ -253,21 +254,24 @@ export function FollowUpsView({
     { id: "closed", label: "Skipped or failed", count: closed.length },
   ];
 
+  const sections = [
+    { value: "queue" as const, label: "Queue", icon: CalendarClock },
+    { value: "feedback" as const, label: "Feedback", icon: Star },
+    { value: "automations" as const, label: "Automations", icon: Settings2 },
+    { value: "broadcast" as const, label: "Promotion", icon: Megaphone },
+  ];
+  const [section, setSection] = useState<(typeof sections)[number]["value"]>("queue");
+
   return (
-    <Tabs defaultValue="queue" className="flex flex-col gap-4 md:gap-6">
-      <TabsList>
-        <TabsTrigger value="queue">
-          <CalendarClock className="size-4" /> Queue
-        </TabsTrigger>
-        <TabsTrigger value="feedback">
-          <Star className="size-4" /> Feedback
-        </TabsTrigger>
-        <TabsTrigger value="automations">
-          <Settings2 className="size-4" /> Automations
-        </TabsTrigger>
-        <TabsTrigger value="broadcast">
-          <Megaphone className="size-4" /> Promotion
-        </TabsTrigger>
+    <Tabs value={section} onValueChange={(v) => setSection(v as typeof section)} className="flex flex-col gap-4 md:gap-6">
+      {/* Phones get a single tappable dropdown instead of a tab row; desktop keeps the pills. */}
+      <TabSelect value={section} onValueChange={setSection} aria-label="Follow-ups section" options={sections} />
+      <TabsList className="hidden sm:inline-flex">
+        {sections.map(({ value, label, icon: Icon }) => (
+          <TabsTrigger key={value} value={value}>
+            <Icon className="size-4" /> {label}
+          </TabsTrigger>
+        ))}
       </TabsList>
 
       <TabsContent value="queue" className="flex flex-col gap-5">
@@ -289,10 +293,9 @@ export function FollowUpsView({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           {/* FIXED: Strict horizontal scroll boundary for the filter buttons */}
           <div
-            className="flex w-full overflow-x-auto gap-2 pb-1 sm:pb-0 sm:w-auto sm:overflow-visible hide-scrollbar"
+            className="no-scrollbar flex w-full gap-2 overflow-x-auto pb-1 sm:w-auto sm:overflow-visible sm:pb-0"
             role="group"
             aria-label="Filter"
-            style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
           >
             {filters.map((f) => (
               <Button
