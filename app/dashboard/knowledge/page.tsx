@@ -11,11 +11,10 @@ export default async function KnowledgePage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const business = await getOrCreateBusiness<{ id: string; business_facts: string | null }>(
-    supabase,
-    user,
-    "id, business_facts",
-  );
+  const business = await getOrCreateBusiness<{
+    id: string;
+    business_facts: string | null;
+  }>(supabase, user, "id, business_facts");
   if (!business) redirect("/dashboard");
 
   const { data: rows } = await supabase
@@ -34,13 +33,19 @@ export default async function KnowledgePage() {
     <div className="flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden scroll-stable">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4 pb-24 sm:gap-6 sm:p-6 md:pb-6">
         <header>
-          <h1 className="font-heading text-2xl font-bold md:text-3xl">Knowledge base</h1>
+          <h1 className="font-heading text-2xl font-bold md:text-3xl">
+            Knowledge base
+          </h1>
           <p className="mt-1 max-w-2xl text-muted-foreground">
-            Everything the assistant is allowed to tell customers: menu, prices, location, hours and common
-            questions. Anything not here, it hands to you instead of guessing.
+            Everything the assistant is allowed to tell customers: menu, prices,
+            location, hours and common questions. Anything not here, it hands to
+            you instead of guessing.
           </p>
         </header>
-        <KnowledgeView entries={(rows ?? []) as KbEntry[]} otherNotes={business.business_facts ?? ""} />
+        <KnowledgeView
+          entries={(rows ?? []) as KbEntry[]}
+          otherNotes={business.business_facts ?? ""}
+        />
       </div>
     </div>
   );

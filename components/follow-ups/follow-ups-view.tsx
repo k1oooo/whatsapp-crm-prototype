@@ -260,22 +260,40 @@ export function FollowUpsView({
     { value: "automations" as const, label: "Automations", icon: Settings2 },
     { value: "broadcast" as const, label: "Promotion", icon: Megaphone },
   ];
-  const [section, setSection] = useState<(typeof sections)[number]["value"]>("queue");
+  const [section, setSection] =
+    useState<(typeof sections)[number]["value"]>("queue");
 
   return (
-    <Tabs value={section} onValueChange={(v) => setSection(v as typeof section)} className="flex flex-col gap-4 md:gap-6">
-      {/* Phones get a single tappable dropdown instead of a tab row; desktop keeps the pills. */}
-      <TabSelect value={section} onValueChange={setSection} aria-label="Follow-ups section" options={sections} />
-      <TabsList className="hidden sm:inline-flex">
-        {sections.map(({ value, label, icon: Icon }) => (
-          <TabsTrigger key={value} value={value}>
-            <Icon className="size-4" /> {label}
-          </TabsTrigger>
-        ))}
-      </TabsList>
+    <Tabs
+      value={section}
+      onValueChange={(v) => setSection(v as typeof section)}
+      className="flex flex-col gap-4 md:gap-6"
+    >
+      <div className="flex flex-col gap-3">
+        {/* Phones get a single tappable dropdown instead of a tab row */}
+        <div className="sm:hidden w-full">
+          <TabSelect
+            value={section}
+            onValueChange={setSection}
+            aria-label="Follow-ups section"
+            options={sections}
+          />
+        </div>
 
-      <TabsContent value="queue" className="flex flex-col gap-5">
-        <ul className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {/* Desktop tabs strictly forced onto a single horizontal scrollable line */}
+        <div className="hidden sm:block overflow-x-auto pb-1">
+          <TabsList className="inline-flex w-max">
+            {sections.map(({ value, label, icon: Icon }) => (
+              <TabsTrigger key={value} value={value} className="gap-2">
+                <Icon className="size-4" /> {label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
+      </div>
+
+      <TabsContent value="queue" className="flex flex-col gap-5 mt-0 w-full">
+        <ul className="grid grid-cols-2 gap-3 lg:grid-cols-4 w-full">
           <Tile label="Upcoming" value={String(upcoming.length)} />
           <Tile label="Sent" value={String(sent.length)} />
           <Tile
@@ -291,7 +309,6 @@ export function FollowUpsView({
         </ul>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          {/* FIXED: Strict horizontal scroll boundary for the filter buttons */}
           <div
             className="no-scrollbar flex w-full gap-2 overflow-x-auto pb-1 sm:w-auto sm:overflow-visible sm:pb-0"
             role="group"
@@ -304,7 +321,7 @@ export function FollowUpsView({
                 variant={filter === f.id ? "default" : "outline"}
                 aria-pressed={filter === f.id}
                 onClick={() => setFilter(f.id)}
-                className="shrink-0" // Forces the button to keep its shape
+                className="shrink-0"
               >
                 {f.label} {f.count}
               </Button>
@@ -324,7 +341,7 @@ export function FollowUpsView({
         </div>
 
         {shown.length === 0 ? (
-          <div className="rounded-xl border border-dashed p-6 sm:p-8 text-center">
+          <div className="rounded-xl border border-dashed p-6 sm:p-8 text-center w-full">
             <p className="font-semibold">Nothing here yet</p>
             <p className="mx-auto mt-1 max-w-md text-xs sm:text-sm text-muted-foreground">
               When you click Payment received on an order, its follow-ups appear
@@ -332,21 +349,20 @@ export function FollowUpsView({
             </p>
           </div>
         ) : (
-          <ul className="flex flex-col gap-3">
+          <ul className="flex flex-col gap-3 w-full">
             {shown.map((item) => (
               <QueueRow key={item.id} item={item} />
             ))}
           </ul>
         )}
       </TabsContent>
-      {/* ... rest of your TabsContent (feedback, automations, broadcast) ... */}
 
       <TabsContent
         value="feedback"
-        className="flex flex-col gap-5 outline-none"
+        className="flex flex-col gap-5 outline-none mt-0 w-full"
       >
         {feedback.length === 0 ? (
-          <div className="rounded-xl border border-dashed p-6 sm:p-8 text-center">
+          <div className="rounded-xl border border-dashed p-6 sm:p-8 text-center w-full">
             <p className="font-semibold">No feedback yet</p>
             <p className="mx-auto mt-1 max-w-md text-xs sm:text-sm text-muted-foreground">
               Ratings and comments appear here when customers answer your
@@ -354,7 +370,7 @@ export function FollowUpsView({
             </p>
           </div>
         ) : (
-          <ul className="flex flex-col gap-3">
+          <ul className="flex flex-col gap-3 w-full">
             {feedback.map((f) => {
               const name =
                 f.lead?.name ?? `+${f.lead?.wa_contact_number ?? "unknown"}`;
@@ -394,11 +410,18 @@ export function FollowUpsView({
         )}
       </TabsContent>
 
-      <TabsContent value="automations" className="outline-none">
+      {/* The [&>*]:max-w-none tailwind class strips max-width limitations off the inner forms */}
+      <TabsContent
+        value="automations"
+        className="outline-none mt-0 w-full [&>*]:max-w-none"
+      >
         <AutomationsForm settings={settings} testMode={testMode} />
       </TabsContent>
 
-      <TabsContent value="broadcast" className="outline-none">
+      <TabsContent
+        value="broadcast"
+        className="outline-none mt-0 w-full [&>*]:max-w-none"
+      >
         <BroadcastForm audience={audience} testMode={testMode} />
       </TabsContent>
     </Tabs>
