@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import {
   CircleHelp,
   Clock,
+  FileText,
   MapPin,
   Plus,
   Sparkles,
@@ -12,6 +13,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { loadStarterKnowledge } from "@/app/dashboard/knowledge/actions";
+import { DocumentsPanel, type DocSummary } from "@/components/knowledge/documents-panel";
 import { EntryCard } from "@/components/knowledge/entry-card";
 import { EntryFormSheet } from "@/components/knowledge/entry-form-sheet";
 import { FactsPreview } from "@/components/knowledge/facts-preview";
@@ -84,16 +86,21 @@ function Section({
   );
 }
 
+// The category tabs, plus one more for uploaded PDFs.
+type Tab = KbCategory | "documents";
+
 export function KnowledgeView({
   entries,
   otherNotes,
+  documents,
 }: {
   entries: KbEntry[];
   otherNotes: string;
+  documents: DocSummary[];
 }) {
-  const [tab, setTab] = useState<KbCategory>("menu");
+  const [tab, setTab] = useState<Tab>("menu");
   const [pending, start] = useTransition();
-  const empty = entries.length === 0;
+  const empty = entries.length === 0 && documents.length === 0;
 
   function fillExample() {
     start(async () => {
@@ -126,7 +133,7 @@ export function KnowledgeView({
         </div>
       )}
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as KbCategory)}>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>
         <div className="mb-6 flex flex-col gap-3">
           {/* Phones get a single tappable dropdown instead of a tab row */}
           <div className="sm:hidden w-full">
@@ -134,10 +141,13 @@ export function KnowledgeView({
               value={tab}
               onValueChange={setTab}
               aria-label="Knowledge base category"
-              options={KB_CATEGORIES.map((c) => ({
-                value: c,
-                label: KB_CATEGORY_LABEL[c],
-              }))}
+              options={[
+                ...KB_CATEGORIES.map((c) => ({
+                  value: c as Tab,
+                  label: KB_CATEGORY_LABEL[c],
+                })),
+                { value: "documents" as Tab, label: "PDF files", icon: FileText },
+              ]}
             />
           </div>
 
@@ -160,6 +170,14 @@ export function KnowledgeView({
                   </TabsTrigger>
                 );
               })}
+              <TabsTrigger value="documents">
+                PDF files
+                {documents.length > 0 && (
+                  <span className="ml-2 text-muted-foreground">
+                    {documents.length}
+                  </span>
+                )}
+              </TabsTrigger>
             </TabsList>
           </div>
         </div>
@@ -182,6 +200,10 @@ export function KnowledgeView({
               <FactsPreview />
             </div>
             <OtherNotesForm initial={otherNotes} />
+          </TabsContent>
+
+          <TabsContent value="documents" className="mt-0">
+            <DocumentsPanel documents={documents} />
           </TabsContent>
         </div>
       </Tabs>

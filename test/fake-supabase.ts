@@ -69,6 +69,7 @@ const DEFAULTS: Record<string, Row> = {
   },
   messages: {},
   knowledge_entries: {},
+  knowledge_documents: {},
   follow_ups: {},
   feedback: {},
 };
@@ -93,7 +94,7 @@ function matchesFilters(row: Row, filters: FilterOp[]): boolean {
   });
 }
 
-const KNOWN_TABLES = ["businesses", "leads", "messages", "draft_replies", "subscriptions", "follow_ups", "knowledge_entries", "feedback"];
+const KNOWN_TABLES = ["businesses", "leads", "messages", "draft_replies", "subscriptions", "follow_ups", "knowledge_entries", "knowledge_documents", "feedback"];
 
 /** Create a fresh fake client. Pass seed rows per table to start with existing data. */
 export function createFakeSupabase(seed: FakeDb = {}) {

@@ -3,6 +3,7 @@ import { KnowledgeView } from "@/components/knowledge/knowledge-view";
 import { createClient } from "@/lib/supabase/server";
 import { getOrCreateBusiness } from "@/lib/business";
 import type { KbEntry } from "@/lib/knowledge";
+import type { DocSummary } from "@/components/knowledge/documents-panel";
 
 export default async function KnowledgePage() {
   const supabase = await createClient();
@@ -20,6 +21,14 @@ export default async function KnowledgePage() {
   const { data: rows } = await supabase
     .from("knowledge_entries")
     .select("id, category, title, content")
+    .eq("business_id", business.id)
+    .order("created_at", { ascending: true });
+
+  // Only the list details, not the extracted text, which can be long. Empty if migration 0013
+  // hasn't been applied yet, so the page still works.
+  const { data: docRows } = await supabase
+    .from("knowledge_documents")
+    .select("id, file_name, size_bytes, page_count, truncated")
     .eq("business_id", business.id)
     .order("created_at", { ascending: true });
 
@@ -45,6 +54,7 @@ export default async function KnowledgePage() {
         <KnowledgeView
           entries={(rows ?? []) as KbEntry[]}
           otherNotes={business.business_facts ?? ""}
+          documents={(docRows ?? []) as DocSummary[]}
         />
       </div>
     </div>

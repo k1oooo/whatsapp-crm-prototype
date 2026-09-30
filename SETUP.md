@@ -2,7 +2,7 @@
 
 ## 1. Supabase (free tier)
 1. supabase.com > organization "Vici" > New project (Singapore region).
-2. SQL Editor > run `supabase/migrations/0001_init.sql`, then `0002_quote_and_locks.sql`, then `0003_pending_decision.sql`, then `0004_auto_reply.sql`, then `0005_handoff_note.sql`, then `0006_order_flow.sql`, then `0007_follow_ups.sql`, then `0008_knowledge_base.sql`, then `0009_self_serve_signup.sql`, then `0010_per_business_wa_credentials.sql`, then `0011_reply_mode.sql`, then `0012_billing.sql`. Run each file once, in order. If you see "already exists", that file was already run, so skip it.
+2. SQL Editor > run `supabase/migrations/0001_init.sql`, then `0002_quote_and_locks.sql`, then `0003_pending_decision.sql`, then `0004_auto_reply.sql`, then `0005_handoff_note.sql`, then `0006_order_flow.sql`, then `0007_follow_ups.sql`, then `0008_knowledge_base.sql`, then `0009_self_serve_signup.sql`, then `0010_per_business_wa_credentials.sql`, then `0011_reply_mode.sql`, then `0012_billing.sql`, then `0013_knowledge_documents.sql`. Run each file once, in order. If you see "already exists", that file was already run, so skip it.
 3. Settings > API Keys: put the URL, publishable key and secret key in `.env.local` (names are in `.env.example`).
 4. Open the app, go to `/signup`, and create your account with your business name. The business row and dashboard are created for you — no SQL Editor step needed. (Auth > Providers > Email: if "Confirm email" is on, you'll get a confirmation link first; the business is still created the first time you land on the dashboard.)
 
@@ -40,7 +40,7 @@ node --env-file=.env.local scripts/simulate-webhook.mjs "" image
 ```
 
 ## 6. Knowledge base
-Dashboard > Knowledge base. Add entries under Menu and pricing, Location and delivery, Hours and lead time, Policies, and FAQ. An empty knowledge base shows a "Fill with an example" button that adds a starter set you can edit. The "Preview" button shows exactly what gets sent to the AI. This replaces the old single "What the assistant may say" box; if you had text there already, it now appears under the Other tab, unchanged.
+Dashboard > Knowledge base. Add entries under Menu and pricing, Location and delivery, Hours and lead time, Policies, and FAQ. An empty knowledge base shows a "Fill with an example" button that adds a starter set you can edit. The "Preview" button shows exactly what gets sent to the AI. The **PDF files** tab lets you upload a PDF of your business data (price list, menu, catalogue; text PDFs only, up to 4MB, up to 5 files). The text is extracted on the server and only that text is stored, so no Supabase Storage bucket is needed. It is added to what the assistant reads, and shows in Preview. Each PDF is cut to 20,000 characters and all PDFs together to 40,000, to keep prompts small for the free model. Needs migration 0013. This replaces the old single "What the assistant may say" box; if you had text there already, it now appears under the Other tab, unchanged.
 
 ## 7. After-sale follow-ups
 Dashboard > Follow-ups > Automations: turn on "Ask for feedback" and/or "Remind them to reorder", set the days, and (for real sending) the WhatsApp template names. Add your review link.
