@@ -11,7 +11,7 @@ export function DetailsSheet({ lead }: { lead: Lead }) {
   return (
     <Sheet>
       <SheetTrigger asChild>
-        <Button variant="outline" size="sm" aria-label="Customer details">
+        <Button variant="outline" size="sm" aria-label="Customer details" className="max-md:w-auto">
           <PenLine />
           <span className="hidden sm:inline">Details</span>
         </Button>
