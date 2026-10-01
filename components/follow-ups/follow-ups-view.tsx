@@ -332,7 +332,7 @@ export function FollowUpsView({
                 variant={filter === f.id ? "default" : "outline"}
                 aria-pressed={filter === f.id}
                 onClick={() => setFilter(f.id)}
-                className="shrink-0"
+                className="shrink-0 max-md:w-auto"
               >
                 {f.label} {f.count}
               </Button>

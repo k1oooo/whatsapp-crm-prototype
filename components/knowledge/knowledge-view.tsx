@@ -54,7 +54,7 @@ function Section({
         <p className="max-w-md text-muted-foreground">
           {KB_CATEGORY_HINT[category]}
         </p>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
           <FactsPreview />
           <EntryFormSheet
             category={category}

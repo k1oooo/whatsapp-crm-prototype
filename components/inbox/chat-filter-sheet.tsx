@@ -92,7 +92,7 @@ export function ChatFilterSheet({
           </div>
         </div>
 
-        <div className="mt-auto flex items-center justify-between gap-3 border-t p-4">
+        <div className="mt-auto flex flex-col-reverse gap-2 border-t p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
           <Button
             variant="ghost"
             size="sm"

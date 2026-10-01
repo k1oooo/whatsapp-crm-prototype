@@ -96,7 +96,7 @@ export function EntryFormSheet({
             </div>
           </div>
 
-          <div className="mt-auto flex items-center justify-end gap-3 border-t p-4">
+          <div className="mt-auto flex flex-col-reverse gap-2 border-t p-4 sm:flex-row sm:items-center sm:justify-end sm:gap-3">
             <SheetClose asChild>
               <Button type="button" variant="ghost">
                 Cancel

@@ -220,9 +220,9 @@ export function SettingsForm({
         </CardContent>
       </Card>
 
-      <div className="sticky bottom-4 z-10 flex items-center justify-end gap-3 rounded-xl border bg-card/95 p-3 shadow-md backdrop-blur">
+      <div className="sticky bottom-4 z-10 flex flex-col gap-2 rounded-xl border bg-card/95 p-3 shadow-md backdrop-blur sm:flex-row sm:items-center sm:justify-end sm:gap-3">
         {dirty && (
-          <p role="status" className="text-sm font-medium text-muted-foreground">
+          <p role="status" className="text-center text-sm font-medium text-muted-foreground sm:text-right">
             You have unsaved changes
           </p>
         )}
