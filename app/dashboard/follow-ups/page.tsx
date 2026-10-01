@@ -1,4 +1,6 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
+import { PageHeader, PageShell } from "@/components/app/page-shell";
 import { FollowUpsView } from "@/components/follow-ups/follow-ups-view";
 import { readSettings } from "@/lib/follow-up-settings";
 import type {
@@ -10,11 +12,24 @@ import { sendMode } from "@/lib/send";
 import { createClient } from "@/lib/supabase/server";
 import { getOrCreateBusiness } from "@/lib/business";
 
+export const metadata: Metadata = { title: "Follow-ups" };
+
 function one<T>(v: T | T[] | null | undefined): T | null {
   return Array.isArray(v) ? (v[0] ?? null) : (v ?? null);
 }
 
-export default async function FollowUpsPage() {
+const SECTIONS = ["queue", "feedback", "automations", "broadcast"] as const;
+
+export default async function FollowUpsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
+  // ?tab=promotion opens the promotion form directly (the Overview's "Send a promotion" button).
+  const { tab } = await searchParams;
+  const wanted = tab === "promotion" ? "broadcast" : tab;
+  const initialSection = SECTIONS.find((s) => s === wanted) ?? "queue";
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -74,27 +89,20 @@ export default async function FollowUpsPage() {
   })) as FeedbackItem[];
 
   return (
-    // FIXED: Added overflow-x-hidden here to strictly prevent the page from moving sideways
-    <div className="flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden scroll-stable">
-      <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4 pb-24 md:gap-6 sm:p-6 lg:p-8">
-        <header>
-          <h1 className="font-heading text-2xl md:text-3xl font-bold">
-            Follow-ups
-          </h1>
-          <p className="mt-1 max-w-2xl text-sm md:text-base text-muted-foreground">
-            After-sale messages: feedback requests, reorder reminders and
-            promotions. Customers must agree to receive them first.
-          </p>
-        </header>
-        <FollowUpsView
-          queue={queue}
-          feedback={feedback}
-          settings={readSettings(business.follow_up_settings)}
-          audience={audience ?? 0}
-          optedIn={optedIn ?? 0}
-          testMode={sendMode() === "dry"}
-        />
-      </div>
-    </div>
+    <PageShell>
+      <PageHeader
+        title="Follow-ups"
+        description="After-sale messages: feedback requests, reorder reminders and promotions. Customers must agree to receive them first."
+      />
+      <FollowUpsView
+        queue={queue}
+        feedback={feedback}
+        settings={readSettings(business.follow_up_settings)}
+        audience={audience ?? 0}
+        optedIn={optedIn ?? 0}
+        testMode={sendMode() === "dry"}
+        initialSection={initialSection}
+      />
+    </PageShell>
   );
 }

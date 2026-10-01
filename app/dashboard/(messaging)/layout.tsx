@@ -6,6 +6,7 @@ import {
   LEAD_COLUMNS,
   displayName,
   isCold,
+  waitingLabel,
   type ChatSummary,
   type Lead,
 } from "@/lib/leads";
@@ -35,31 +36,46 @@ export default async function MessagingLayout({
   );
   if (!business) return null;
 
-  const { data: leadRows } = await supabase
+  const { data: leadRows, error: leadsError } = await supabase
     .from("leads")
-    .select(LEAD_COLUMNS)
+    .select(`${LEAD_COLUMNS}, last_inbound_at, created_at`)
     .eq("business_id", business.id)
     .order("last_message_at", { ascending: false, nullsFirst: false });
-  const leads = (leadRows ?? []) as unknown as Lead[];
+  // A failed query must not look like "no chats yet". Let the error page take over.
+  if (leadsError) throw new Error(`Could not load chats: ${leadsError.message}`);
+  const leads = (leadRows ?? []) as unknown as (Lead & {
+    last_inbound_at: string | null;
+    created_at: string;
+  })[];
 
-  const { data: msgRows } = await supabase
-    .from("messages")
-    .select("lead_id, direction, body, sent_at, source")
-    .eq("business_id", business.id)
-    .order("sent_at", { ascending: false })
-    .order("created_at", { ascending: false })
-    .limit(600);
-  const last = new Map<
-    string,
-    {
-      direction: "in" | "out";
-      body: string | null;
-      sent_at: string;
-      source: string | null;
-    }
-  >();
-  for (const m of msgRows ?? [])
-    if (!last.has(m.lead_id)) last.set(m.lead_id, m);
+  type LastMsg = {
+    direction: "in" | "out";
+    body: string | null;
+    sent_at: string;
+    source: string | null;
+  };
+  const last = new Map<string, LastMsg>();
+
+  // One row per chat, so a quiet chat keeps its preview however busy the rest of the inbox is
+  // (migration 0014). If that function is not installed yet, fall back to the newest 600 messages.
+  const { data: lastRows, error: lastError } = await supabase.rpc(
+    "last_messages",
+    { p_business_id: business.id },
+  );
+  if (!lastError && lastRows) {
+    for (const m of lastRows as (LastMsg & { lead_id: string })[])
+      last.set(m.lead_id, m);
+  } else {
+    const { data: msgRows } = await supabase
+      .from("messages")
+      .select("lead_id, direction, body, sent_at, source")
+      .eq("business_id", business.id)
+      .order("sent_at", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(600);
+    for (const m of (msgRows ?? []) as (LastMsg & { lead_id: string })[])
+      if (!last.has(m.lead_id)) last.set(m.lead_id, m);
+  }
 
   const { data: draftRows } = await supabase
     .from("draft_replies")
@@ -87,6 +103,9 @@ export default async function MessagingLayout({
         lastDirection: m?.direction ?? null,
         lastSource: m?.source ?? null,
         lastAt: m?.sent_at ?? lead.last_message_at,
+        waiting: lead.pending_decision
+          ? waitingLabel(lead.last_inbound_at ?? lead.created_at)
+          : null,
       };
     })
     .sort((a, b) => {
@@ -95,6 +114,5 @@ export default async function MessagingLayout({
       return (b.lastAt ?? "").localeCompare(a.lastAt ?? "");
     });
 
-  // Reverted back to directly returning the DashboardFrame
   return <DashboardFrame chats={chats}>{children}</DashboardFrame>;
 }

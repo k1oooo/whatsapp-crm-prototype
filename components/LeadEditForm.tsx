@@ -27,7 +27,7 @@ export function LeadEditForm({ lead }: { lead: Lead }) {
     <form onSubmit={submit} className="flex flex-col gap-4">
       <div className="grid gap-1.5">
         <Label htmlFor="name">Customer name</Label>
-        <Input id="name" name="name" defaultValue={lead.name ?? ""} />
+        <Input id="name" name="name" defaultValue={lead.name ?? ""} autoComplete="off" />
       </div>
       <div className="grid gap-1.5">
         <Label htmlFor="need">What they want</Label>

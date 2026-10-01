@@ -1,10 +1,14 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { MessagesSquare, TriangleAlert } from "lucide-react";
 import { SubmitButton } from "@/components/SubmitButton";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { signUp } from "./actions";
+
+export const metadata: Metadata = { title: "Create your account" };
 
 export default async function SignupPage({
   searchParams,
@@ -45,18 +49,22 @@ export default async function SignupPage({
               </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="password">Password</Label>
-                <Input
+                <PasswordInput
                   id="password"
                   name="password"
-                  type="password"
                   required
                   minLength={6}
                   autoComplete="new-password"
+                  aria-describedby={error ? "password-hint form-error" : "password-hint"}
                 />
+                <p id="password-hint" className="text-sm text-muted-foreground">
+                  At least 6 characters.
+                </p>
               </div>
 
               {error && (
                 <p
+                  id="form-error"
                   role="alert"
                   className="flex items-start gap-2 rounded-lg bg-warning px-3 py-2 text-sm text-warning-foreground"
                 >

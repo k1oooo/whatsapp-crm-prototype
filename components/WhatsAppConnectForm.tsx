@@ -17,6 +17,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -61,12 +62,8 @@ function SecretField({
           )}
         </span>
         {hasValue && (
-          <label className="flex items-center gap-1.5 cursor-pointer">
-            <input
-              type="checkbox"
-              name={`clear_${name}`}
-              className="size-3.5"
-            />
+          <label className="flex min-h-11 cursor-pointer items-center gap-2">
+            <Checkbox name={`clear_${name}`} />
             Remove
           </label>
         )}

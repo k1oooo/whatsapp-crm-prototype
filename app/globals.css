@@ -24,6 +24,9 @@
   --destructive: #b3261e;
   --border: #d8e0da;
   --input: #d8e0da;
+  /* Borders of fields you type or tick in. 3.6:1 on white, so a field is visible on its own.
+     --border stays light for dividers and card outlines. */
+  --control-border: #7a8a82;
   --ring: #1f7a5c;
 
   /* Product colors */
@@ -37,7 +40,13 @@
   --success-foreground: #1c5b2a;
   --bubble-owner: #d3efc4;
   --bubble-bot: #e6f2ea;
+  --bubble-bot-border: #bfdccb;
   --chat: #edf2ee;
+
+  /* Count badges. White text on this is 5.4:1. */
+  --alert: #9a5b00;
+  --alert-foreground: #ffffff;
+  --rating: #e0a030;
 }
 
 @theme inline {
@@ -66,6 +75,7 @@
   --color-destructive: var(--destructive);
   --color-border: var(--border);
   --color-input: var(--input);
+  --color-control: var(--control-border);
   --color-ring: var(--ring);
 
   --color-warning: var(--warning);
@@ -78,6 +88,10 @@
   --color-success-foreground: var(--success-foreground);
   --color-bubble-owner: var(--bubble-owner);
   --color-bubble-bot: var(--bubble-bot);
+  --color-bubble-bot-border: var(--bubble-bot-border);
+  --color-alert: var(--alert);
+  --color-alert-foreground: var(--alert-foreground);
+  --color-rating: var(--rating);
   --color-chat: var(--chat);
 }
 

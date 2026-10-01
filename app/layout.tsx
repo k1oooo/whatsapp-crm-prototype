@@ -16,7 +16,7 @@ const body = Figtree({
 });
 
 export const metadata: Metadata = {
-  title: "WhatsApp Sales CRM",
+  title: { default: "WhatsApp Sales CRM", template: "%s | WhatsApp Sales CRM" },
   description: "Your WhatsApp orders, handled.",
 };
 

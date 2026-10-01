@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { MessagesSquare, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { FlaskConical, MessagesSquare, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { AssistantToggle } from "@/components/app/assistant-toggle";
 import { SidebarNav } from "@/components/app/nav";
 import { SignOutButton } from "@/components/app/sign-out-button";
+import { TestModeChip } from "@/components/app/test-mode-chip";
 import { Button } from "@/components/ui/button";
 import { signOut } from "@/app/login/actions";
 import { cn } from "@/lib/utils";
@@ -21,11 +22,13 @@ export function Sidebar({
   autoReply,
   needsYou,
   defaultCollapsed,
+  testMode = false,
 }: {
   businessName: string;
   autoReply: boolean;
   needsYou: number;
   defaultCollapsed: boolean;
+  testMode?: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
 
@@ -53,9 +56,9 @@ export function Sidebar({
                 toggle();
               }
             }}
-            title={collapsed ? "Expand sidebar" : "Go to the inbox"}
+            title={collapsed ? "Expand sidebar" : "Go to the overview"}
             aria-label={
-              collapsed ? "Expand sidebar" : `${businessName}, go to the inbox`
+              collapsed ? "Expand sidebar" : `${businessName}, go to the overview`
             }
             className="group/logo flex h-11 w-full items-center overflow-hidden rounded-xl whitespace-nowrap outline-none"
           >
@@ -89,7 +92,7 @@ export function Sidebar({
               <span className="block truncate font-heading text-[15px] lg:text-lg leading-tight font-bold">
                 {businessName}
               </span>
-              <span className="block text-[11px] lg:text-xs text-muted-foreground">
+              <span className="block text-xs text-muted-foreground">
                 WhatsApp orders
               </span>
             </span>
@@ -116,6 +119,17 @@ export function Sidebar({
         <SidebarNav needsYou={needsYou} collapsed={collapsed} />
 
         <div className="mt-auto flex flex-col gap-2">
+          {testMode &&
+            (collapsed ? (
+              <span
+                title="Test mode: replies are not sent to customers"
+                className="flex h-9 items-center justify-center rounded-lg bg-info text-info-foreground"
+              >
+                <FlaskConical className="size-4" aria-label="Test mode" />
+              </span>
+            ) : (
+              <TestModeChip className="h-auto w-full justify-center py-1 whitespace-normal" />
+            ))}
           <AssistantToggle initial={autoReply} collapsed={collapsed} />
           <form action={signOut}>
             <SignOutButton collapsed={collapsed} />

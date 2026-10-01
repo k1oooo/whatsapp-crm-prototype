@@ -1,25 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import { Bot, CircleCheck, Image as ImageIcon, MessageSquareDashed, Search, Sparkles, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Bot, Image as ImageIcon, MessageSquareDashed, Search, X } from "lucide-react";
+import { searchMessages } from "@/app/dashboard/actions";
 import { ChatAvatar } from "@/components/chat-avatar";
+import { EmptyState } from "@/components/empty-state";
 import { ChatFilterSheet } from "@/components/inbox/chat-filter-sheet";
 import { ALL_FILTERS, matchesFilters, type FilterId } from "@/components/inbox/chat-filters";
-import { ReasonIcon } from "@/components/reason-icon";
+import { LeadStatusBadge } from "@/components/lead-status";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  ORDER_LABEL,
-  REASON_LABEL,
-  STAGE_DOT,
-  STAGE_LABEL,
-  chatTime,
-  isMedia,
-  previewText,
-  type ChatSummary,
-} from "@/lib/leads";
+import { chatTime, isMedia, previewText, type ChatSummary } from "@/lib/leads";
 import { cn } from "@/lib/utils";
 
 function Preview({ chat }: { chat: ChatSummary }) {
@@ -34,41 +27,6 @@ function Preview({ chat }: { chat: ChatSummary }) {
         {previewText(chat.lastBody)}
       </span>
     </span>
-  );
-}
-
-function StatusBadge({ chat }: { chat: ChatSummary }) {
-  if (chat.needsYou) {
-    return (
-      <Badge variant="warning">
-        <ReasonIcon reason={chat.reason} />
-        {chat.reason ? (REASON_LABEL[chat.reason] ?? chat.reason) : "you said you would check"}
-      </Badge>
-    );
-  }
-  if (chat.hasDraft) {
-    return (
-      <Badge variant="info">
-        <Sparkles />
-        Draft ready
-      </Badge>
-    );
-  }
-  if (chat.orderStatus === "paid") {
-    return (
-      <Badge variant="success">
-        <CircleCheck />
-        {ORDER_LABEL.paid}
-      </Badge>
-    );
-  }
-  if (chat.orderStatus === "confirmed") return <Badge variant="info">Waiting for payment</Badge>;
-  if (chat.cold) return <Badge variant="info">Quiet</Badge>;
-  return (
-    <Badge variant="muted">
-      <span aria-hidden className="size-1.5 rounded-full" style={{ background: STAGE_DOT[chat.stage] }} />
-      {STAGE_LABEL[chat.stage]}
-    </Badge>
   );
 }
 
@@ -87,13 +45,20 @@ function Item({ chat, active }: { chat: ChatSummary; active: boolean }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
             <p className="truncate font-semibold">{chat.name}</p>
-            <time className="shrink-0 text-xs text-muted-foreground">{chatTime(chat.lastAt)}</time>
+            {chat.lastAt && (
+              <time dateTime={chat.lastAt} className="shrink-0 text-xs text-muted-foreground">
+                {chatTime(chat.lastAt)}
+              </time>
+            )}
           </div>
           <div className="mt-0.5 text-sm">
             <Preview chat={chat} />
           </div>
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <StatusBadge chat={chat} />
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+            <LeadStatusBadge {...chat} />
+            {chat.needsYou && chat.waiting && (
+              <span className="text-xs font-medium text-warning-foreground">Waiting {chat.waiting}</span>
+            )}
           </div>
         </div>
       </Link>
@@ -101,23 +66,66 @@ function Item({ chat, active }: { chat: ChatSummary; active: boolean }) {
   );
 }
 
+// The views used all day, one tap each. The sheet next to the search box still has every filter.
+const QUICK: { label: string; ids: FilterId[] }[] = [
+  { label: "All", ids: [] },
+  { label: "Needs you", ids: ["needs_you"] },
+  { label: "Drafts", ids: ["has_draft"] },
+  { label: "Payment", ids: ["waiting_payment"] },
+];
+
+const NO_HITS: Set<string> = new Set();
+
+function sameSet(a: Set<FilterId>, ids: FilterId[]) {
+  return a.size === ids.length && ids.every((id) => a.has(id));
+}
+
 export function ChatList({ chats, activeId }: { chats: ChatSummary[]; activeId: string | null }) {
   const needsCount = chats.filter((c) => c.needsYou).length;
   const [filters, setFilters] = useState<Set<FilterId>>(() => (needsCount > 0 ? new Set(["needs_you"]) : new Set()));
   const [query, setQuery] = useState("");
+  const [messageHits, setMessageHits] = useState<Set<string>>(new Set());
 
   const q = query.trim().toLowerCase();
+
+  // Also look inside the messages themselves ("Hari Raya", an item name), after a short pause.
+  useEffect(() => {
+    if (q.length < 2) return;
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      const ids = await searchMessages(q);
+      if (!cancelled) setMessageHits(new Set(ids));
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [q]);
+
+  // Hits only count while the search is long enough to have been run.
+  const hits = q.length >= 2 ? messageHits : NO_HITS;
+
   const shown = useMemo(
     () =>
       chats.filter(
         (c) =>
           matchesFilters(c, filters) &&
-          (!q || c.name.toLowerCase().includes(q) || c.number.includes(q.replace(/^\+/, ""))),
+          (!q ||
+            c.name.toLowerCase().includes(q) ||
+            c.number.includes(q.replace(/^\+/, "")) ||
+            hits.has(c.id)),
       ),
-    [chats, filters, q],
+    [chats, filters, q, hits],
   );
 
+  const counts = useMemo(() => {
+    const count = (ids: FilterId[]) => (ids.length === 0 ? chats.length : chats.filter((c) => matchesFilters(c, new Set(ids))).length);
+    return QUICK.map((s) => count(s.ids));
+  }, [chats]);
+
   const activeChips = ALL_FILTERS.filter((f) => filters.has(f.id));
+  // Chips are only needed for filters the quick row cannot show.
+  const customChips = QUICK.some((s) => sameSet(filters, s.ids)) ? [] : activeChips;
 
   function removeFilter(id: FilterId) {
     const next = new Set(filters);
@@ -140,7 +148,7 @@ export function ChatList({ chats, activeId }: { chats: ChatSummary[]; activeId: 
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search name or number"
+              placeholder="Search name, number or message"
               aria-label="Search chats"
               className="pl-9"
             />
@@ -148,20 +156,42 @@ export function ChatList({ chats, activeId }: { chats: ChatSummary[]; activeId: 
           <ChatFilterSheet selected={filters} onChange={setFilters} />
         </div>
 
-        {activeChips.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {activeChips.map((f) => (
+        <div role="group" aria-label="Show" className="flex gap-1.5 overflow-x-auto pb-0.5">
+          {QUICK.map((s, i) => {
+            const on = sameSet(filters, s.ids);
+            return (
+              <button
+                key={s.label}
+                type="button"
+                aria-pressed={on}
+                onClick={() => setFilters(new Set(s.ids))}
+                className={cn(
+                  "flex h-10 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-sm font-medium outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                  on ? "border-primary bg-primary text-primary-foreground" : "border-control bg-card hover:bg-accent",
+                )}
+              >
+                {s.label}
+                <span className={cn("text-xs", on ? "text-primary-foreground" : "text-muted-foreground")}>{counts[i]}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {customChips.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {customChips.map((f) => (
               <button
                 key={f.id}
                 type="button"
                 onClick={() => removeFilter(f.id)}
-                className="flex items-center gap-1 rounded-full border bg-secondary py-1 pr-2 pl-3 text-xs font-medium outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+                aria-label={`Remove filter: ${f.label}`}
+                className="flex h-9 items-center gap-1 rounded-full border border-control bg-secondary pr-2.5 pl-3.5 text-sm font-medium outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
               >
                 {f.label}
-                <X className="size-3.5" aria-hidden />
+                <X className="size-4" aria-hidden />
               </button>
             ))}
-            <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => setFilters(new Set())}>
+            <Button variant="link" size="sm" className="px-2" onClick={() => setFilters(new Set())}>
               Clear all
             </Button>
           </div>
@@ -169,19 +199,15 @@ export function ChatList({ chats, activeId }: { chats: ChatSummary[]; activeId: 
       </div>
 
       {shown.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 p-8 text-center">
+        <div className="flex flex-1 items-center p-6">
           {q || activeChips.length > 0 ? (
-            <>
-              <MessageSquareDashed className="size-9 text-muted-foreground" aria-hidden />
-              <p className="font-semibold">No chats match</p>
-              <p className="text-sm text-muted-foreground">Try a different search or fewer filters.</p>
-            </>
+            <EmptyState icon={MessageSquareDashed} title="No chats match">
+              Try a different search or fewer filters.
+            </EmptyState>
           ) : (
-            <>
-              <MessageSquareDashed className="size-9 text-muted-foreground" aria-hidden />
-              <p className="font-semibold">No chats yet</p>
-              <p className="text-sm text-muted-foreground">New WhatsApp messages will show up here.</p>
-            </>
+            <EmptyState icon={MessageSquareDashed} title="No chats yet">
+              New WhatsApp messages will show up here.
+            </EmptyState>
           )}
         </div>
       ) : (

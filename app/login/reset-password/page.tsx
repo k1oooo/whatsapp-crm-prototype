@@ -1,11 +1,14 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { KeyRound, TriangleAlert } from "lucide-react";
 import { SubmitButton } from "@/components/SubmitButton";
 import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { createClient } from "@/lib/supabase/server";
 import { updatePassword } from "./actions";
+
+export const metadata: Metadata = { title: "Choose a new password" };
 
 export default async function ResetPasswordPage({
   searchParams,
@@ -36,18 +39,22 @@ export default async function ResetPasswordPage({
             <form action={updatePassword} className="flex flex-col gap-4">
               <div className="grid gap-1.5">
                 <Label htmlFor="password">New password</Label>
-                <Input
+                <PasswordInput
                   id="password"
                   name="password"
-                  type="password"
                   required
                   minLength={6}
                   autoComplete="new-password"
+                  aria-describedby={error ? "password-hint form-error" : "password-hint"}
                 />
+                <p id="password-hint" className="text-sm text-muted-foreground">
+                  At least 6 characters.
+                </p>
               </div>
 
               {error && (
                 <p
+                  id="form-error"
                   role="alert"
                   className="flex items-start gap-2 rounded-lg bg-warning px-3 py-2 text-sm text-warning-foreground"
                 >

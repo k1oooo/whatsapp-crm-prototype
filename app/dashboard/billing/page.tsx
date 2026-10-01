@@ -1,3 +1,5 @@
+import { PageHeader, PageShell } from "@/components/app/page-shell";
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import {
   AlertTriangle,
@@ -33,6 +35,8 @@ import { stripeConfigured } from "@/lib/stripe";
 import type { SubscriptionInfo } from "@/lib/subscriptions";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
+
+export const metadata: Metadata = { title: "Billing" };
 
 const TONE: Record<PlanKind, { icon: LucideIcon; ring: string; chip: string }> =
   {
@@ -174,16 +178,11 @@ export default async function BillingPage({
   const confirming = checkout === "success" && plan.kind !== "active";
 
   return (
-    <div className="flex-1 min-h-0 w-full overflow-y-auto overflow-x-hidden scroll-stable">
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 p-4 pb-24 md:gap-6 sm:p-6 lg:p-8">
-        <header>
-          <h1 className="font-heading text-2xl md:text-3xl font-bold">
-            Billing
-          </h1>
-          <p className="mt-1 md:mt-2 text-sm md:text-lg text-muted-foreground">
-            Your plan, and what the assistant does while it&apos;s active.
-          </p>
-        </header>
+    <PageShell>
+      <PageHeader
+        title="Billing"
+        description="Your plan, and what the assistant does while it's active."
+      />
 
         {confirming && <ConfirmingPayment key={confirm ?? "now"} />}
         {checkout === "success" && plan.kind === "active" && (
@@ -370,7 +369,7 @@ export default async function BillingPage({
                   </li>
                 </ul>
                 {plan.kind === "trial" && (
-                  <p className="text-[11px] md:text-xs text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     You&apos;ll be charged when you subscribe. It doesn&apos;t
                     add to your remaining trial days.
                   </p>
@@ -429,7 +428,6 @@ export default async function BillingPage({
             </div>
           </div>
         </details>
-      </div>
-    </div>
+    </PageShell>
   );
 }

@@ -1,7 +1,8 @@
 import { STAGE_DOT, STAGE_LABEL, type Stage } from "@/lib/leads";
 import { cn } from "@/lib/utils";
 
-// Read-only. The assistant moves a lead's stage itself; nobody edits it by hand.
+// Read-only display. The assistant moves a stage on its own, and the owner can change it from
+// the Details sheet on the chat.
 export function StagePill({ stage, compact = false }: { stage: Stage; compact?: boolean }) {
   return (
     <span

@@ -10,6 +10,8 @@ import {
 import { FactsPreview } from "@/components/knowledge/facts-preview";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { EmptyState } from "@/components/empty-state";
 import { MAX_DOCS, MAX_PDF_BYTES } from "@/lib/knowledge";
 
 export interface DocSummary {
@@ -27,9 +29,10 @@ function prettySize(bytes: number): string {
 
 function DocCard({ doc }: { doc: DocSummary }) {
   const [pending, start] = useTransition();
+  const [confirming, setConfirming] = useState(false);
 
   function remove() {
-    if (!confirm(`Delete "${doc.file_name}"? The assistant will no longer know what is in it.`)) return;
+    setConfirming(false);
     start(async () => {
       const res = await deleteKnowledgeDocument(doc.id);
       if (res.error) toast.error(res.error);
@@ -55,12 +58,21 @@ function DocCard({ doc }: { doc: DocSummary }) {
         variant="ghost"
         size="icon"
         aria-label={`Delete ${doc.file_name}`}
-        className="size-8 shrink-0"
-        onClick={remove}
+        className="shrink-0"
+        onClick={() => setConfirming(true)}
         disabled={pending}
       >
-        {pending ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+        {pending ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" aria-hidden />}
       </Button>
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title={`Delete "${doc.file_name}"?`}
+        description="The assistant will no longer know what is in it. You can upload it again later."
+        confirmLabel="Delete"
+        pending={pending}
+        onConfirm={remove}
+      />
     </Card>
   );
 }
@@ -139,14 +151,9 @@ export function DocumentsPanel({ documents }: { documents: DocSummary[] }) {
       </form>
 
       {documents.length === 0 ? (
-        <div className="rounded-xl border border-dashed p-8 text-center">
-          <FileText className="mx-auto size-8 text-muted-foreground" aria-hidden />
-          <p className="mt-2 font-semibold">No PDFs yet</p>
-          <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
-            Anything you upload here is added to what the assistant knows, next to the entries you
-            type in.
-          </p>
-        </div>
+        <EmptyState icon={FileText} title="No PDFs yet">
+          Anything you upload here is added to what the assistant knows, next to the entries you type in.
+        </EmptyState>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           {documents.map((d) => (

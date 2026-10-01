@@ -1,11 +1,9 @@
 import Link from "next/link";
-import { CircleCheck, Clock } from "lucide-react";
 import { ChatAvatar } from "@/components/chat-avatar";
 import { OrderLines } from "@/components/order-lines";
-import { ReasonIcon } from "@/components/reason-icon";
-import { Badge } from "@/components/ui/badge";
+import { NeedsYouBadge, PaidBadge, QuietBadge, WaitingPaymentBadge } from "@/components/lead-status";
 import { Card } from "@/components/ui/card";
-import { REASON_LABEL, chatTime, displayName, isCold, lastTouch, rm, type Lead } from "@/lib/leads";
+import { chatTime, displayName, isCold, lastTouch, rm, type Lead } from "@/lib/leads";
 
 // A customer on the pipeline board: who, status, what they ordered, price, stage.
 export function LeadCard({ lead, coldAfterDays }: { lead: Lead; coldAfterDays: number }) {
@@ -32,25 +30,10 @@ export function LeadCard({ lead, coldAfterDays }: { lead: Lead; coldAfterDays: n
 
       {hasStatus && (
         <div className="flex flex-wrap gap-1.5">
-          {lead.pending_decision && (
-            <Badge variant="warning">
-              <ReasonIcon reason={lead.human_reason} />
-              Needs you{lead.human_reason ? `: ${REASON_LABEL[lead.human_reason] ?? lead.human_reason}` : ""}
-            </Badge>
-          )}
-          {lead.order_status === "paid" && (
-            <Badge variant="success">
-              <CircleCheck />
-              Paid
-            </Badge>
-          )}
-          {lead.order_status === "confirmed" && <Badge variant="info">Waiting for payment</Badge>}
-          {cold && !lead.pending_decision && (
-            <Badge variant="info">
-              <Clock />
-              Quiet
-            </Badge>
-          )}
+          {lead.pending_decision && <NeedsYouBadge reason={lead.human_reason} withPrefix />}
+          {lead.order_status === "paid" && <PaidBadge />}
+          {lead.order_status === "confirmed" && <WaitingPaymentBadge />}
+          {cold && !lead.pending_decision && <QuietBadge />}
         </div>
       )}
 

@@ -1,10 +1,14 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { MessagesSquare, TriangleAlert } from "lucide-react";
 import { SubmitButton } from "@/components/SubmitButton";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { signIn } from "./actions";
+
+export const metadata: Metadata = { title: "Sign in" };
 
 export default async function LoginPage({
   searchParams,
@@ -29,7 +33,7 @@ export default async function LoginPage({
             <form action={signIn} className="flex flex-col gap-4">
               <div className="grid gap-1.5">
                 <Label htmlFor="email">Email</Label>
-                <Input id="email" name="email" type="email" required autoComplete="email" />
+                <Input id="email" name="email" type="email" required autoComplete="email" aria-invalid={error ? true : undefined} aria-describedby={error ? "form-error" : undefined} />
               </div>
               <div className="grid gap-1.5">
                 <div className="flex items-center justify-between">
@@ -41,11 +45,11 @@ export default async function LoginPage({
                     Forgot password?
                   </Link>
                 </div>
-                <Input id="password" name="password" type="password" required autoComplete="current-password" />
+                <PasswordInput id="password" name="password" required autoComplete="current-password" aria-invalid={error ? true : undefined} aria-describedby={error ? "form-error" : undefined} />
               </div>
 
               {error && (
-                <p role="alert" className="flex items-start gap-2 rounded-lg bg-warning px-3 py-2 text-sm text-warning-foreground">
+                <p id="form-error" role="alert" className="flex items-start gap-2 rounded-lg bg-warning px-3 py-2 text-sm text-warning-foreground">
                   <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
                   {error}
                 </p>

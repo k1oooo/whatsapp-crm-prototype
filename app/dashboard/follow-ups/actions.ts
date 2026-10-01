@@ -2,7 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import type { FormState } from "@/app/dashboard/actions";
-import { DEFAULT_FEEDBACK_TEXT, DEFAULT_REORDER_TEXT, type FollowUpSettings } from "@/lib/follow-up-settings";
+import {
+  DEFAULT_FEEDBACK_TEXT,
+  DEFAULT_REORDER_TEXT,
+  readSettings,
+  renderText,
+  templateParams,
+  type FollowUpSettings,
+} from "@/lib/follow-up-settings";
+import { sendMode, sendWhatsAppTemplate } from "@/lib/send";
 import { runDueFollowUps } from "@/lib/follow-ups";
 import { createClient } from "@/lib/supabase/server";
 
@@ -157,5 +165,55 @@ export async function sendBroadcast(_prev: FormState, formData: FormData): Promi
       summary.sent + summary.failed + summary.skipped > 0
         ? summaryText(summary)
         : `Queued for ${audience.length} customers. They go out at 10am.`,
+  };
+}
+
+/** Sends the promotion to the owner's own number only, so they can see it before it goes to customers. */
+export async function sendPromotionTest(_prev: FormState, formData: FormData): Promise<FormState> {
+  void _prev;
+  const supabase = await createClient();
+  const businessId = await myBusinessId(supabase);
+  if (!businessId) return { error: "Please sign in again." };
+
+  const body = String(formData.get("text") ?? "").trim();
+  const templateName = String(formData.get("template") ?? "").trim();
+  if (!body) return { error: "Write the message first." };
+
+  const { data: biz } = await supabase
+    .from("businesses")
+    .select("wa_phone_number_id, wa_access_token, wa_owner_number, follow_up_settings")
+    .eq("id", businessId)
+    .maybeSingle();
+  if (!biz?.wa_phone_number_id) return { error: "Connect WhatsApp first, in Settings." };
+  const to = String(biz.wa_owner_number ?? "").replace(/\D/g, "");
+  if (!to) {
+    return { error: "Add your own WhatsApp number under Settings > WhatsApp connection, then try again." };
+  }
+
+  const settings = readSettings(biz.follow_up_settings);
+  const vars = { name: "You", items: null, link: settings.reviewLink || null };
+  if (sendMode(biz.wa_access_token) === "live" && !templateName) {
+    return { error: "Type the WhatsApp template name first. WhatsApp only delivers a promotion through an approved template." };
+  }
+
+  try {
+    await sendWhatsAppTemplate(
+      biz.wa_phone_number_id,
+      to,
+      templateName,
+      settings.language,
+      templateParams(body, vars),
+      biz.wa_access_token,
+    );
+  } catch (err) {
+    console.error("Promotion test failed", err);
+    return { error: "WhatsApp did not accept the test. Check the template name and that it is approved." };
+  }
+  return {
+    ok: true,
+    notice:
+      sendMode(biz.wa_access_token) === "dry"
+        ? "Test mode: nothing was actually sent."
+        : `Sent to your number: "${renderText(body, vars).slice(0, 80)}"`,
   };
 }

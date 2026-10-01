@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useTransition, type FormEvent } from "react";
+import { useState, useTransition, type FormEvent } from "react";
 import { ArrowRight, Bot, BookOpen, Landmark, Loader2, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
-import { saveSettings } from "@/app/dashboard/actions";
+import { saveSettings, toggleAutoReply } from "@/app/dashboard/actions";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioCard } from "@/components/ui/radio-card";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -34,6 +35,25 @@ export function SettingsForm({
   waConnected: boolean;
 }) {
   const [pending, start] = useTransition();
+  const [dirty, setDirty] = useState(false);
+
+  // The on/off switch works the same here as in the sidebar: it changes the assistant straight
+  // away, with no need to press Save. The hidden field below keeps Save from undoing it.
+  const [on, setOn] = useState(autoReply);
+  const [toggling, startToggle] = useTransition();
+
+  function changeOn(next: boolean) {
+    setOn(next);
+    startToggle(async () => {
+      const res = await toggleAutoReply(next);
+      if (res.error) {
+        setOn(!next);
+        toast.error(res.error);
+      } else {
+        toast.success(next ? "Assistant is on" : "Assistant is paused");
+      }
+    });
+  }
 
   function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -41,12 +61,21 @@ export function SettingsForm({
     start(async () => {
       const res = await saveSettings({}, data);
       if (res.error) toast.error(res.error);
-      else toast.success("Settings saved");
+      else {
+        toast.success("Settings saved");
+        setDirty(false);
+      }
     });
   }
 
   return (
-    <form onSubmit={submit} className="flex flex-col gap-6">
+    <form
+      onSubmit={submit}
+      onChange={() => setDirty(true)}
+      onInput={() => setDirty(true)}
+      className="flex flex-col gap-6"
+    >
+      <input type="hidden" name="auto_reply" value={on ? "on" : "off"} />
       <Card>
         <CardHeader className="flex-row items-start gap-4">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
@@ -57,7 +86,7 @@ export function SettingsForm({
             <CardDescription className="mt-1">
               {waConnected
                 ? "Connected. Update the number or webhook here."
-                : "Not connected yet — no messages will come in until this is set up."}
+                : "Not connected yet, so no messages will come in until this is set up."}
             </CardDescription>
           </div>
         </CardHeader>
@@ -84,8 +113,9 @@ export function SettingsForm({
             </CardDescription>
           </div>
           <Switch
-            name="auto_reply"
-            defaultChecked={autoReply}
+            checked={on}
+            onCheckedChange={changeOn}
+            disabled={toggling}
             aria-label="Answer customers automatically"
           />
         </CardHeader>
@@ -99,38 +129,25 @@ export function SettingsForm({
           </CardContent>
         )}
         <CardContent className="flex flex-col gap-2 border-t pt-4">
-          <p className="text-sm font-medium">When automatic replies are on, above</p>
-          <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 has-[:checked]:border-primary has-[:checked]:bg-secondary">
-            <input
-              type="radio"
+          <p id="reply-mode-label" className="text-sm font-medium">
+            How the assistant replies
+          </p>
+          <div role="radiogroup" aria-labelledby="reply-mode-label" className="flex flex-col gap-2">
+            <RadioCard
               name="reply_mode"
               value="auto"
               defaultChecked={replyMode !== "approve"}
-              className="mt-1"
+              title="AI replies automatically"
+              description="Sends the moment it has an answer. Fastest for the customer."
             />
-            <span>
-              <span className="block font-medium">AI replies automatically</span>
-              <span className="block text-sm text-muted-foreground">
-                Sends the moment it has an answer. Fastest for the customer.
-              </span>
-            </span>
-          </label>
-          <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 has-[:checked]:border-primary has-[:checked]:bg-secondary">
-            <input
-              type="radio"
+            <RadioCard
               name="reply_mode"
               value="approve"
               defaultChecked={replyMode === "approve"}
-              className="mt-1"
+              title="AI drafts, I approve every send"
+              description="Every reply waits in the chat for you to send or edit first. Slower, but nothing goes to a customer without you seeing it."
             />
-            <span>
-              <span className="block font-medium">AI drafts, I approve every send</span>
-              <span className="block text-sm text-muted-foreground">
-                Every reply waits in the chat for you to send or edit first. Slower, but nothing
-                goes to a customer without you seeing it.
-              </span>
-            </span>
-          </label>
+          </div>
         </CardContent>
       </Card>
 
@@ -203,7 +220,12 @@ export function SettingsForm({
         </CardContent>
       </Card>
 
-      <div className="sticky bottom-4 z-10 flex justify-end rounded-xl border bg-card/95 p-3 shadow-md backdrop-blur">
+      <div className="sticky bottom-4 z-10 flex items-center justify-end gap-3 rounded-xl border bg-card/95 p-3 shadow-md backdrop-blur">
+        {dirty && (
+          <p role="status" className="text-sm font-medium text-muted-foreground">
+            You have unsaved changes
+          </p>
+        )}
         <Button type="submit" size="lg" disabled={pending}>
           {pending && <Loader2 className="animate-spin" />}
           Save settings

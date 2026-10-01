@@ -1,5 +1,8 @@
+import type { Metadata } from "next";
 import { MailCheck } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+
+export const metadata: Metadata = { title: "Check your email" };
 
 export default async function CheckEmailPage({
   searchParams,

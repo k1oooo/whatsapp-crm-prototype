@@ -1,5 +1,8 @@
+import type { Metadata } from "next";
 import { MessagesSquare } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+
+export const metadata: Metadata = { title: "Inbox" };
 
 export default async function Inbox() {
   const supabase = await createClient();

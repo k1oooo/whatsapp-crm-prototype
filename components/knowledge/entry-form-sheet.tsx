@@ -25,12 +25,24 @@ export function EntryFormSheet({
   category,
   entry,
   trigger,
+  defaultOpen = false,
+  prefill,
+  onClosed,
 }: {
   category: KbCategory;
   entry?: KbEntry;
   trigger: ReactNode;
+  /** Open as soon as it appears, used when arriving from a chat with an answer to save. */
+  defaultOpen?: boolean;
+  /** Starting text for a new entry. */
+  prefill?: { title: string; content: string };
+  onClosed?: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpenState] = useState(defaultOpen);
+  function setOpen(next: boolean) {
+    setOpenState(next);
+    if (!next) onClosed?.();
+  }
   const [pending, start] = useTransition();
   const isFaq = category === "faq";
   const editing = !!entry;
@@ -67,7 +79,7 @@ export function EntryFormSheet({
                 id="title"
                 name="title"
                 required
-                defaultValue={entry?.title}
+                defaultValue={entry?.title ?? prefill?.title}
                 placeholder={isFaq ? "Do you deliver on weekends?" : "Cupcakes"}
               />
             </div>
@@ -78,7 +90,7 @@ export function EntryFormSheet({
                 name="content"
                 required
                 rows={6}
-                defaultValue={entry?.content}
+                defaultValue={entry?.content ?? prefill?.content}
                 placeholder={isFaq ? "Yes, Saturday only, 10am to 4pm." : "RM3 each. Minimum order 12."}
               />
             </div>

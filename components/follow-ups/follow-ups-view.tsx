@@ -23,9 +23,12 @@ import {
   AutomationsForm,
   BroadcastForm,
 } from "@/components/follow-ups/follow-up-forms";
+import { EmptyState } from "@/components/empty-state";
+import { StatCard } from "@/components/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { TabSelect } from "@/components/ui/tab-select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { FollowUpSettings } from "@/lib/follow-up-settings";
@@ -54,8 +57,8 @@ function Stars({ rating }: { rating: number | null }) {
           className={cn(
             "size-4",
             rating && n <= rating
-              ? "fill-[#E0A030] text-[#E0A030]"
-              : "text-border",
+              ? "fill-rating text-rating"
+              : "text-control",
           )}
         />
       ))}
@@ -79,6 +82,7 @@ function StatusBadge({ item }: { item: QueueItem }) {
 
 function QueueRow({ item }: { item: QueueItem }) {
   const [pending, start] = useTransition();
+  const [confirmSend, setConfirmSend] = useState(false);
   const meta = KIND[item.kind];
   const Icon = meta.icon;
   const name =
@@ -141,7 +145,7 @@ function QueueRow({ item }: { item: QueueItem }) {
               variant="outline"
               disabled={pending}
               onClick={() =>
-                act(() => sendFollowUpNow(item.id), "Follow-up checked")
+                act(() => sendFollowUpNow(item.id), "Tried again")
               }
             >
               {pending ? <Loader2 className="animate-spin" /> : <RefreshCw />}
@@ -154,9 +158,7 @@ function QueueRow({ item }: { item: QueueItem }) {
                 size="sm"
                 variant="outline"
                 disabled={pending}
-                onClick={() =>
-                  act(() => sendFollowUpNow(item.id), "Follow-up sent")
-                }
+                onClick={() => setConfirmSend(true)}
               >
                 {pending ? <Loader2 className="animate-spin" /> : <Send />}
                 Send now
@@ -173,32 +175,19 @@ function QueueRow({ item }: { item: QueueItem }) {
           )}
         </div>
       </Card>
-    </li>
-  );
-}
-
-function Tile({
-  label,
-  value,
-  hint,
-}: {
-  label: string;
-  value: string;
-  hint?: string;
-}) {
-  return (
-    <li className="flex flex-col justify-between rounded-xl border bg-card p-4">
-      <p className="text-xs sm:text-sm text-muted-foreground">{label}</p>
-      <div>
-        <p className="mt-1 font-heading text-2xl sm:text-3xl font-bold">
-          {value}
-        </p>
-        {hint && (
-          <p className="text-[11px] sm:text-xs text-muted-foreground mt-0.5">
-            {hint}
-          </p>
-        )}
-      </div>
+      <ConfirmDialog
+        open={confirmSend}
+        onOpenChange={setConfirmSend}
+        tone="default"
+        title={`Send to ${name} now?`}
+        description="The message goes out on WhatsApp straight away instead of at its scheduled time."
+        confirmLabel="Send now"
+        pending={pending}
+        onConfirm={() => {
+          setConfirmSend(false);
+          act(() => sendFollowUpNow(item.id), "Follow-up sent");
+        }}
+      />
     </li>
   );
 }
@@ -210,7 +199,9 @@ export function FollowUpsView({
   audience,
   optedIn,
   testMode,
+  initialSection = "queue",
 }: {
+  initialSection?: "queue" | "feedback" | "automations" | "broadcast";
   queue: QueueItem[];
   feedback: FeedbackItem[];
   settings: FollowUpSettings;
@@ -222,6 +213,7 @@ export function FollowUpsView({
     "upcoming",
   );
   const [running, startRun] = useTransition();
+  const [confirmRun, setConfirmRun] = useState(false);
 
   const upcoming = queue
     .filter((q) => q.status === "scheduled" || q.status === "sending")
@@ -240,7 +232,22 @@ export function FollowUpsView({
     ? rated.reduce((sum, f) => sum + (f.rating ?? 0), 0) / rated.length
     : null;
 
+  // What "Send what is due" would send. Counted when the button is pressed, since "due" depends on the clock.
+  const [dueNow, setDueNow] = useState(0);
+  function askRun() {
+    setDueNow(
+      queue.filter(
+        (q) =>
+          q.status === "scheduled" &&
+          new Date(q.due_at).getTime() <= Date.now() &&
+          (q.kind === "marketing" || q.lead?.follow_up_consent === "yes"),
+      ).length,
+    );
+    setConfirmRun(true);
+  }
+
   function runNow() {
+    setConfirmRun(false);
     startRun(async () => {
       const res = await runFollowUpsNow();
       if (res.error) toast.error(res.error);
@@ -261,7 +268,7 @@ export function FollowUpsView({
     { value: "broadcast" as const, label: "Promotion", icon: Megaphone },
   ];
   const [section, setSection] =
-    useState<(typeof sections)[number]["value"]>("queue");
+    useState<(typeof sections)[number]["value"]>(initialSection);
 
   return (
     <Tabs
@@ -285,7 +292,7 @@ export function FollowUpsView({
           <TabsList className="inline-flex w-max">
             {sections.map(({ value, label, icon: Icon }) => (
               <TabsTrigger key={value} value={value} className="gap-2">
-                <Icon className="size-4" /> {label}
+                <Icon className="size-4" aria-hidden /> {label}
               </TabsTrigger>
             ))}
           </TabsList>
@@ -294,18 +301,22 @@ export function FollowUpsView({
 
       <TabsContent value="queue" className="flex flex-col gap-5 mt-0 w-full">
         <ul className="grid grid-cols-2 gap-3 lg:grid-cols-4 w-full">
-          <Tile label="Upcoming" value={String(upcoming.length)} />
-          <Tile label="Sent" value={String(sent.length)} />
-          <Tile
-            label="Agreed to follow-ups"
-            value={String(optedIn)}
-            hint={optedIn === 1 ? "customer" : "customers"}
-          />
-          <Tile
-            label="Average rating"
-            value={average ? average.toFixed(1) : "None yet"}
-            hint={rated.length ? `${rated.length} ratings` : undefined}
-          />
+          <li><StatCard label="Upcoming" value={upcoming.length} /></li>
+          <li><StatCard label="Sent" value={sent.length} /></li>
+          <li>
+            <StatCard
+              label="Agreed to follow-ups"
+              value={optedIn}
+              hint={optedIn === 1 ? "customer" : "customers"}
+            />
+          </li>
+          <li>
+            <StatCard
+              label="Average rating"
+              value={average ? average.toFixed(1) : "None yet"}
+              hint={rated.length ? `${rated.length} ratings` : undefined}
+            />
+          </li>
         </ul>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -331,23 +342,41 @@ export function FollowUpsView({
           <Button
             variant="outline"
             size="sm"
-            onClick={runNow}
+            onClick={askRun}
             disabled={running}
             className="w-full sm:w-auto shrink-0"
           >
             {running ? <Loader2 className="animate-spin" /> : <RefreshCw />}
             Send what is due
           </Button>
+          <ConfirmDialog
+            open={confirmRun}
+            onOpenChange={setConfirmRun}
+            tone="default"
+            title="Send what is due?"
+            description={
+              dueNow > 0
+                ? `${dueNow} ${dueNow === 1 ? "message is" : "messages are"} due now and will go out on WhatsApp straight away.`
+                : "Nothing looks due right now. This checks the queue and sends anything that is ready."
+            }
+            confirmLabel="Send"
+            pending={running}
+            onConfirm={runNow}
+          />
         </div>
 
         {shown.length === 0 ? (
-          <div className="rounded-xl border border-dashed p-6 sm:p-8 text-center w-full">
-            <p className="font-semibold">Nothing here yet</p>
-            <p className="mx-auto mt-1 max-w-md text-xs sm:text-sm text-muted-foreground">
-              When you click Payment received on an order, its follow-ups appear
-              here. Turn them on in Automations.
-            </p>
-          </div>
+          <EmptyState
+            icon={CalendarClock}
+            title="Nothing here yet"
+            action={
+              <Button variant="outline" onClick={() => setSection("automations")}>
+                Set up automations
+              </Button>
+            }
+          >
+            When you confirm a payment on an order, its follow-ups appear here.
+          </EmptyState>
         ) : (
           <ul className="flex flex-col gap-3 w-full">
             {shown.map((item) => (
@@ -362,13 +391,9 @@ export function FollowUpsView({
         className="flex flex-col gap-5 outline-none mt-0 w-full"
       >
         {feedback.length === 0 ? (
-          <div className="rounded-xl border border-dashed p-6 sm:p-8 text-center w-full">
-            <p className="font-semibold">No feedback yet</p>
-            <p className="mx-auto mt-1 max-w-md text-xs sm:text-sm text-muted-foreground">
-              Ratings and comments appear here when customers answer your
-              feedback request.
-            </p>
-          </div>
+          <EmptyState icon={Star} title="No feedback yet">
+            Ratings and comments appear here when customers answer your feedback request.
+          </EmptyState>
         ) : (
           <ul className="flex flex-col gap-3 w-full">
             {feedback.map((f) => {

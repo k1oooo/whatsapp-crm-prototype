@@ -44,7 +44,7 @@ export interface Lead {
 export const ORDER_LABEL: Record<string, string> = {
   collecting: "Taking the order",
   awaiting_confirmation: "Waiting for the customer to confirm",
-  confirmed: "Confirmed, waiting for payment",
+  confirmed: "Waiting for payment",
   paid: "Paid",
 };
 
@@ -171,6 +171,20 @@ export interface ChatSummary {
   lastDirection: "in" | "out" | null;
   lastSource: string | null;
   lastAt: string | null;
+  /** How long a "needs you" chat has been waiting, like "12 min". Null otherwise. */
+  waiting: string | null;
+}
+
+/** "5 min", "3 h" or "2 days": how long ago, without the word "ago". */
+export function waitingLabel(iso: string | null): string | null {
+  if (!iso) return null;
+  const mins = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60_000));
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} h`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "1 day" : `${days} days`;
 }
 
 export function initials(name: string): string {

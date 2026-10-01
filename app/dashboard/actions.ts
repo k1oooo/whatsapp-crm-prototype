@@ -12,6 +12,7 @@ import {
   type LeadFields,
 } from "@/lib/ai";
 import { LEAD_COLUMNS, STAGES, type Lead, type Stage } from "@/lib/leads";
+import type { Msg } from "@/components/chat/chat-thread";
 
 // Row level security makes sure each of these only touches the signed-in owner's data.
 
@@ -22,8 +23,8 @@ export interface FormState {
 }
 
 /** Moving a lead to Won or Lost locks the stage so the AI does not reopen it. */
-export async function moveStage(leadId: string, stage: Stage) {
-  if (!STAGES.includes(stage)) return;
+export async function moveStage(leadId: string, stage: Stage): Promise<FormState> {
+  if (!STAGES.includes(stage)) return { error: "Unknown stage." };
   const supabase = await createClient();
 
   const { data: lead } = await supabase
@@ -37,7 +38,7 @@ export async function moveStage(leadId: string, stage: Stage) {
   const locked =
     stage === "won" || stage === "lost" ? [...others, "stage"] : others;
 
-  await supabase
+  const { error } = await supabase
     .from("leads")
     .update({
       stage,
@@ -45,7 +46,12 @@ export async function moveStage(leadId: string, stage: Stage) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", leadId);
+  if (error) {
+    console.error("moveStage failed", error.code, error.message);
+    return { error: "Could not change the stage. Try again." };
+  }
   revalidatePath("/dashboard", "layout");
+  return { ok: true };
 }
 
 /** For when you answered the customer outside the app. */
@@ -500,7 +506,70 @@ export async function answerHandoff(
   return deliver(supabase, ctx, body, "dashboard");
 }
 
-/** The switch in the sidebar: turn the assistant on or off. */
+/** Chats whose messages contain the search text. Row level security limits this to the owner's own chats. */
+export async function searchMessages(query: string): Promise<string[]> {
+  const q = query.trim().slice(0, 80);
+  if (q.length < 2) return [];
+  const supabase = await createClient();
+  const like = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+  const { data, error } = await supabase
+    .from("messages")
+    .select("lead_id")
+    .ilike("body", like)
+    .limit(300);
+  if (error) {
+    console.error("searchMessages failed", error.code, error.message);
+    return [];
+  }
+  return [...new Set((data ?? []).map((r) => r.lead_id as string))];
+}
+
+/** Older messages for a chat, for the "Load earlier messages" button. Oldest first. */
+export async function loadEarlierMessages(
+  leadId: string,
+  before: string,
+): Promise<{ messages: Msg[]; hasMore: boolean; error?: string }> {
+  const PAGE = 100;
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("messages")
+    .select("id, direction, body, sent_at, source")
+    .eq("lead_id", leadId)
+    .lte("sent_at", before)
+    .order("sent_at", { ascending: false })
+    .order("created_at", { ascending: false })
+    .limit(PAGE + 1);
+  if (error) {
+    console.error("loadEarlierMessages failed", error.code, error.message);
+    return { messages: [], hasMore: false, error: "Could not load earlier messages." };
+  }
+  const rows = data ?? [];
+  return {
+    messages: rows.slice(0, PAGE).reverse() as Msg[],
+    hasMore: rows.length > PAGE,
+  };
+}
+
+/** The owner writes a reply of their own. It goes to the customer exactly as typed. */
+export async function sendOwnerMessage(
+  leadId: string,
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
+  void _prev;
+  const body = String(formData.get("body") ?? "").trim();
+  if (!body) return { error: "Type a message first." };
+  if (body.length > 4000)
+    return { error: "That message is too long for WhatsApp. Shorten it." };
+
+  const supabase = await createClient();
+  const ctx = await loadContext(supabase, leadId);
+  if (typeof ctx === "string") return { error: ctx };
+
+  return deliver(supabase, ctx, body, "dashboard");
+}
+
+/** The assistant switch: turn the assistant on or off. */
 export async function toggleAutoReply(next: boolean): Promise<FormState> {
   const supabase = await createClient();
   const {

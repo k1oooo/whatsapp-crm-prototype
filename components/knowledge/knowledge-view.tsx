@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import {
   CircleHelp,
@@ -18,6 +19,7 @@ import { EntryCard } from "@/components/knowledge/entry-card";
 import { EntryFormSheet } from "@/components/knowledge/entry-form-sheet";
 import { FactsPreview } from "@/components/knowledge/facts-preview";
 import { OtherNotesForm } from "@/components/knowledge/other-notes-form";
+import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
 import { TabSelect } from "@/components/ui/tab-select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -57,7 +59,7 @@ function Section({
           <EntryFormSheet
             category={category}
             trigger={
-              <Button size="sm">
+              <Button>
                 <Plus />
                 Add {category === "faq" ? "question" : "entry"}
               </Button>
@@ -67,14 +69,10 @@ function Section({
       </div>
 
       {entries.length === 0 ? (
-        <div className="rounded-xl border border-dashed p-8 text-center">
-          <Icon className="mx-auto size-8 text-muted-foreground" aria-hidden />
-          <p className="mt-2 font-semibold">Nothing here yet</p>
-          <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
-            The assistant can only answer about what you add. Nothing here means
-            it hands the customer to you instead.
-          </p>
-        </div>
+        <EmptyState icon={Icon} title="Nothing here yet">
+          The assistant can only answer about what you add. Nothing here means
+          it hands the customer to you instead.
+        </EmptyState>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
           {entries.map((e) => (
@@ -93,12 +91,16 @@ export function KnowledgeView({
   entries,
   otherNotes,
   documents,
+  prefill,
 }: {
   entries: KbEntry[];
   otherNotes: string;
   documents: DocSummary[];
+  /** An answer the owner just gave in a chat, offered as a new question and answer. */
+  prefill?: { title: string; content: string } | null;
 }) {
-  const [tab, setTab] = useState<Tab>("menu");
+  const router = useRouter();
+  const [tab, setTab] = useState<Tab>(prefill ? "faq" : "menu");
   const [pending, start] = useTransition();
   const empty = entries.length === 0 && documents.length === 0;
 
@@ -131,6 +133,16 @@ export function KnowledgeView({
             Fill with an example
           </Button>
         </div>
+      )}
+
+      {prefill && (
+        <EntryFormSheet
+          category="faq"
+          defaultOpen
+          prefill={prefill}
+          onClosed={() => router.replace("/dashboard/knowledge")}
+          trigger={<span className="hidden" />}
+        />
       )}
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)}>

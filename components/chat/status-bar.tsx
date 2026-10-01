@@ -26,7 +26,10 @@ export function StatusBar({
   }
 
   return (
-    <footer className="flex items-center gap-2 border-t bg-card px-4 py-3 text-sm text-muted-foreground">
+    <footer
+      role="status"
+      className="flex items-center gap-2 border-t bg-card px-4 py-3 text-sm text-muted-foreground"
+    >
       <Icon className="size-4 shrink-0" aria-hidden />
       {text}
     </footer>

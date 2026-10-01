@@ -10,7 +10,7 @@ export function ChatHeader({ lead }: { lead: Lead }) {
   return (
     <header className="flex items-center gap-3 border-b bg-card px-3 py-3 sm:px-5">
       <Button asChild variant="ghost" size="icon" className="-ml-1 lg:hidden">
-        <Link href="/dashboard" aria-label="Back to inbox">
+        <Link href="/dashboard/inbox" aria-label="Back to inbox">
           <ChevronLeft className="size-6" />
         </Link>
       </Button>

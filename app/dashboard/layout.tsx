@@ -3,11 +3,11 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import {
   CreditCard,
-  FlaskConical,
   MessageCircleWarning,
-  Radio,
+  type LucideIcon,
 } from "lucide-react";
 import { MobileNav } from "@/components/app/nav";
+import { MobileTopBar } from "@/components/app/mobile-top-bar";
 import { Sidebar } from "@/components/app/sidebar";
 import {
   Card,
@@ -92,6 +92,35 @@ export default async function DashboardLayout({
   const sidebarCollapsed =
     (await cookies()).get("sidebar-collapsed")?.value === "1";
 
+  const testMode =
+    !!business.wa_phone_number_id && sendMode(business.wa_access_token) === "dry";
+
+  // One banner at a time, the most urgent first. Everything here needs the owner to do
+  // something, so a banner that is always on (like "Live") would only teach people to ignore them.
+  let banner: { href: string; tone: string; icon: LucideIcon; text: string } | null = null;
+  if (!subscriptionActive) {
+    banner = {
+      href: "/dashboard/billing",
+      tone: "bg-warning text-warning-foreground",
+      icon: CreditCard,
+      text: `The assistant is paused. ${subscriptionBlockedNote(subscription)}`,
+    };
+  } else if (!business.wa_phone_number_id) {
+    banner = {
+      href: "/dashboard/settings/whatsapp",
+      tone: "bg-warning text-warning-foreground",
+      icon: MessageCircleWarning,
+      text: "Connect WhatsApp to start receiving customer messages",
+    };
+  } else if (trialDaysLeftCount !== null && trialDaysLeftCount <= 3) {
+    banner = {
+      href: "/dashboard/billing",
+      tone: "bg-info text-info-foreground",
+      icon: CreditCard,
+      text: `Your free trial ends in ${trialDaysLeftCount} ${trialDaysLeftCount === 1 ? "day" : "days"}. Subscribe to keep the assistant on.`,
+    };
+  }
+
   return (
     <div className="fixed inset-0 flex overflow-clip">
       <Sidebar
@@ -99,67 +128,25 @@ export default async function DashboardLayout({
         autoReply={business.auto_reply}
         needsYou={needsYou}
         defaultCollapsed={sidebarCollapsed}
+        testMode={testMode}
       />
       <div className="flex min-w-0 flex-1 flex-col">
-        {!subscriptionActive && (
+        <MobileTopBar
+          businessName={business.name}
+          autoReply={business.auto_reply}
+          testMode={testMode}
+        />
+        {banner && (
           <Link
-            href="/dashboard/billing"
-            className="flex shrink-0 items-center justify-center gap-1.5 md:gap-2 bg-warning p-2.5 md:px-4 md:py-2 text-center text-[11px] md:text-sm font-medium leading-tight text-warning-foreground hover:underline"
+            href={banner.href}
+            className={`flex shrink-0 items-center justify-center gap-2 px-4 py-2.5 text-center text-sm leading-snug font-medium hover:underline ${banner.tone}`}
           >
-            <CreditCard className="size-3.5 md:size-4 shrink-0" aria-hidden />
-            <span>
-              The assistant is paused. {subscriptionBlockedNote(subscription)}
-            </span>
+            <banner.icon className="size-4 shrink-0" aria-hidden />
+            <span>{banner.text}</span>
           </Link>
         )}
-        {trialDaysLeftCount !== null && trialDaysLeftCount <= 3 && (
-          <Link
-            href="/dashboard/billing"
-            className="flex shrink-0 items-center justify-center gap-1.5 md:gap-2 bg-info p-2.5 md:px-4 md:py-2 text-center text-[11px] md:text-sm font-medium leading-tight text-info-foreground hover:underline"
-          >
-            <CreditCard className="size-3.5 md:size-4 shrink-0" aria-hidden />
-            <span>
-              Your free trial ends in {trialDaysLeftCount}{" "}
-              {trialDaysLeftCount === 1 ? "day" : "days"}. Subscribe to keep the
-              assistant on.
-            </span>
-          </Link>
-        )}
-        {!business.wa_phone_number_id && (
-          <Link
-            href="/dashboard/settings/whatsapp"
-            className="flex shrink-0 items-center justify-center gap-1.5 md:gap-2 bg-warning p-2.5 md:px-4 md:py-2 text-center text-[11px] md:text-sm font-medium leading-tight text-warning-foreground hover:underline"
-          >
-            <MessageCircleWarning
-              className="size-3.5 md:size-4 shrink-0"
-              aria-hidden
-            />
-            <span>Connect WhatsApp to start receiving customer messages</span>
-          </Link>
-        )}
-        {business.wa_phone_number_id &&
-          sendMode(business.wa_access_token) === "dry" && (
-            <div className="flex shrink-0 items-center justify-center gap-1.5 md:gap-2 bg-info p-2.5 md:px-4 md:py-2 text-center text-[11px] md:text-sm font-medium leading-tight text-info-foreground">
-              <FlaskConical
-                className="size-3.5 md:size-4 shrink-0"
-                aria-hidden
-              />
-              <span>
-                Test mode: WhatsApp messages are not being sent to customers
-              </span>
-            </div>
-          )}
-        {business.wa_phone_number_id &&
-          sendMode(business.wa_access_token) === "live" && (
-            <div className="flex shrink-0 items-center justify-center gap-1.5 md:gap-2 bg-success p-2.5 md:px-4 md:py-2 text-center text-[11px] md:text-sm font-medium leading-tight text-success-foreground">
-              <Radio className="size-3.5 md:size-4 shrink-0" aria-hidden />
-              <span>
-                Live: messages are being sent to real customers on WhatsApp
-              </span>
-            </div>
-          )}
 
-        <main className="min-h-0 flex-1 flex flex-col">{children}</main>
+        <main className="flex min-h-0 flex-1 flex-col">{children}</main>
 
         <MobileNav needsYou={needsYou} />
       </div>

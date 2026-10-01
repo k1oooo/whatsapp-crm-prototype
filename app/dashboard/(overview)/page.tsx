@@ -1,21 +1,23 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import {
-  Activity,
   ArrowRight,
   Banknote,
   Bot,
+  Check,
   CircleCheck,
   Clock,
   Hourglass,
   Megaphone,
   MessageSquareText,
-  Plus,
   Send,
   Star,
   TrendingDown,
   TrendingUp,
   type LucideIcon,
 } from "lucide-react";
+import { PageHeader, PageShell } from "@/components/app/page-shell";
+import { StatCard } from "@/components/stat-card";
 import { Button } from "@/components/ui/button";
 import {
   formatChangePct,
@@ -23,12 +25,15 @@ import {
   formatMoney,
   getDashboardData,
 } from "@/lib/dashboard-data";
+import { getOrCreateBusiness } from "@/lib/business";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 
+export const metadata: Metadata = { title: "Overview" };
+
 // Layout priority, top to bottom: (1) what needs a decision right now, (2) money and volume,
 // (3) pipeline health, (4) everything else that's useful but not urgent. Everything on this page
-// is real data from Supabase (see lib/dashboard-data.ts) — nothing here is hardcoded.
+// is real data from Supabase (see lib/dashboard-data.ts). Nothing here is hardcoded.
 
 const SOURCE_STYLE: Record<
   "customer" | "owner" | "bot" | "dashboard",
@@ -43,14 +48,14 @@ const SOURCE_STYLE: Record<
 function Trend({ pct, digits = 0 }: { pct: number | null; digits?: number }) {
   const label = formatChangePct(pct, digits);
   if (label === null) {
-    return <p className="text-[11px] text-muted-foreground md:text-xs">No data for last week yet</p>;
+    return <p className="text-xs text-muted-foreground">No data for last week yet</p>;
   }
   const up = (pct ?? 0) >= 0;
   const Icon = up ? TrendingUp : TrendingDown;
   return (
     <p
       className={cn(
-        "flex items-center gap-1 text-[11px] font-medium md:text-xs",
+        "flex items-center gap-1 text-xs font-medium",
         up ? "text-success-foreground" : "text-warning-foreground",
       )}
     >
@@ -94,14 +99,67 @@ function EmptyRow({ children }: { children: React.ReactNode }) {
   return <p className="py-2 text-sm text-muted-foreground">{children}</p>;
 }
 
+// Shown until the four things the assistant needs are in place. Each step links to where it is done.
+function SetupChecklist({ steps }: { steps: { label: string; href: string; done: boolean }[] }) {
+  const left = steps.filter((s) => !s.done).length;
+  if (left === 0) return null;
+  return (
+    <section aria-labelledby="setup-title" className="rounded-xl border bg-card p-5 shadow-sm md:p-6">
+      <h2 id="setup-title" className="font-heading text-base font-bold md:text-lg">
+        Finish setting up ({steps.length - left} of {steps.length} done)
+      </h2>
+      <ul className="mt-3 flex flex-col">
+        {steps.map((step) => (
+          <li key={step.label}>
+            <Link
+              href={step.href}
+              className="flex min-h-11 items-center gap-3 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-accent md:text-base"
+            >
+              <span
+                className={cn(
+                  "flex size-6 shrink-0 items-center justify-center rounded-full border",
+                  step.done ? "border-primary bg-primary text-primary-foreground" : "border-control",
+                )}
+              >
+                {step.done && <Check className="size-3.5" aria-hidden />}
+              </span>
+              <span className={cn("flex-1", step.done && "text-muted-foreground line-through")}>{step.label}</span>
+              {!step.done && <ArrowRight className="size-4 text-muted-foreground" aria-hidden />}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export default async function DashboardOverview() {
   const supabase = await createClient();
   const d = await getDashboardData(supabase);
 
-  const tiles = [
-    { label: "Need you", value: d.needsYou, icon: Hourglass, tone: "bg-warning text-warning-foreground" },
-    { label: "Waiting for payment", value: d.waitingForPayment, icon: Banknote, tone: "bg-info text-info-foreground" },
-    { label: "Paid orders", value: d.paidOrders, icon: CircleCheck, tone: "bg-success text-success-foreground" },
+  // Setup progress. If any lookup fails the step simply shows as not done, which is harmless.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const business = user
+    ? await getOrCreateBusiness<{
+        id: string;
+        wa_phone_number_id: string | null;
+        payment_details: string | null;
+        auto_reply: boolean;
+      }>(supabase, user, "id, wa_phone_number_id, payment_details, auto_reply")
+    : null;
+  const { count: knowledgeCount } = business
+    ? await supabase
+        .from("knowledge_entries")
+        .select("id", { count: "exact", head: true })
+        .eq("business_id", business.id)
+    : { count: 0 };
+  const setup = [
+    { label: "Connect your WhatsApp number", href: "/dashboard/settings/whatsapp", done: !!business?.wa_phone_number_id },
+    { label: "Tell the assistant about your products and prices", href: "/dashboard/knowledge", done: (knowledgeCount ?? 0) > 0 },
+    { label: "Add your payment details", href: "/dashboard/settings", done: !!business?.payment_details?.trim() },
+    { label: "Turn the assistant on", href: "/dashboard/settings", done: !!business?.auto_reply },
   ];
 
   const kpis: { label: string; value: string; trend: number | null; icon: LucideIcon }[] = [
@@ -133,38 +191,24 @@ export default async function DashboardOverview() {
   const totalLeads = d.pipeline.reduce((sum, p) => sum + p.count, 0);
 
   return (
-    <div className="flex h-full flex-col gap-6 overflow-y-auto overflow-x-hidden scroll-stable bg-muted/20 p-4 pb-24 md:gap-8 md:p-6 md:pb-8 lg:p-8">
-      {/* Header, with the two most common actions right next to it */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3 md:gap-4">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary md:size-12">
-            <Activity className="size-5 md:size-6" aria-hidden />
-          </span>
-          <div>
-            <h1 className="font-heading text-xl font-bold md:text-2xl">Overview</h1>
-            <p className="text-sm text-muted-foreground md:text-base">
-              A quick glance at your pipeline and orders.
-            </p>
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <Button asChild variant="outline" size="sm">
-            <Link href="/dashboard/pipeline">
-              <Plus className="size-4" aria-hidden />
-              Add lead
-            </Link>
-          </Button>
-          <Button asChild size="sm">
-            <Link href="/dashboard/follow-ups">
+    <PageShell size="wide" className="bg-muted/20">
+      <PageHeader
+        title="Overview"
+        description="A quick glance at your pipeline and orders."
+        actions={
+          <Button asChild>
+            <Link href="/dashboard/follow-ups?tab=promotion">
               <Send className="size-4" aria-hidden />
-              Broadcast
+              Send a promotion
             </Link>
           </Button>
-        </div>
-      </div>
+        }
+      />
+
+      <SetupChecklist steps={setup} />
 
       {/* 1. Most important: decisions only you can make, right now. */}
-      {d.attention.length > 0 && (
+      {d.attention.length > 0 ? (
         <section className="rounded-xl border-2 border-warning bg-card p-5 shadow-sm md:p-6">
           <div className="mb-4 flex items-center justify-between gap-3">
             <h2 className="flex items-center gap-2 font-heading text-base font-bold md:text-lg">
@@ -176,7 +220,7 @@ export default async function DashboardOverview() {
             </h2>
             <Link
               href="/dashboard/inbox"
-              className="flex items-center gap-1 text-xs font-medium text-primary hover:underline md:text-sm"
+              className="flex min-h-11 items-center gap-1 text-sm font-medium text-primary hover:underline"
             >
               Open inbox
               <ArrowRight className="size-3.5" aria-hidden />
@@ -186,14 +230,14 @@ export default async function DashboardOverview() {
             {d.attention.map((a) => (
               <li key={a.id}>
                 <Link
-                  href="/dashboard/inbox"
-                  className="-mx-2 flex flex-col gap-1 rounded-lg px-2 py-3 transition-colors first:pt-0 last:pb-0 hover:bg-accent sm:flex-row sm:items-center sm:justify-between sm:gap-4"
+                  href={`/dashboard/leads/${a.id}`}
+                  className="-mx-2 flex flex-col gap-1 rounded-lg px-2 py-3 transition-colors hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/40 focus-visible:outline-none first:pt-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
                 >
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold">{a.name}</p>
-                    <p className="text-xs capitalize text-muted-foreground md:text-sm">{a.reason}</p>
+                    <p className="text-sm font-semibold md:text-base">{a.name}</p>
+                    <p className="text-sm capitalize text-muted-foreground">{a.reason}</p>
                   </div>
-                  <span className="flex shrink-0 items-center gap-1.5 text-xs text-warning-foreground md:text-sm">
+                  <span className="flex shrink-0 items-center gap-1.5 text-sm text-warning-foreground">
                     <Hourglass className="size-3.5" aria-hidden />
                     Waiting {a.waiting}
                   </span>
@@ -202,21 +246,35 @@ export default async function DashboardOverview() {
             ))}
           </ul>
         </section>
+      ) : (
+        <p
+          role="status"
+          className="flex items-center gap-2 rounded-xl border bg-card px-5 py-4 text-sm font-medium shadow-sm md:text-base"
+        >
+          <CircleCheck className="size-5 shrink-0 text-primary" aria-hidden />
+          All clear. Nothing needs you right now.
+        </p>
       )}
 
       {/* 2. Money and volume: the numbers an owner checks first. */}
-      <ul className="grid w-full grid-cols-1 gap-4 sm:grid-cols-3">
-        {tiles.map(({ label, value, icon: Icon, tone }) => (
-          <li key={label} className="flex items-center gap-4 rounded-xl border bg-card p-5 shadow-sm md:p-6">
-            <span className={cn("flex size-10 shrink-0 items-center justify-center rounded-xl md:size-12", tone)}>
-              <Icon className="size-5 md:size-6" aria-hidden />
-            </span>
-            <div>
-              <p className="text-xs font-medium text-muted-foreground md:text-sm">{label}</p>
-              <p className="font-heading text-2xl font-bold md:text-3xl">{value}</p>
-            </div>
-          </li>
-        ))}
+      <ul className="grid w-full grid-cols-1 gap-4 sm:grid-cols-2">
+        <li>
+          <StatCard
+            label="Waiting for payment"
+            value={d.waitingForPayment}
+            icon={Banknote}
+            tone="bg-info text-info-foreground"
+            href="/dashboard/inbox"
+          />
+        </li>
+        <li>
+          <StatCard
+            label="Paid orders"
+            value={d.paidOrders}
+            icon={CircleCheck}
+            tone="bg-success text-success-foreground"
+          />
+        </li>
       </ul>
 
       <ul className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-4">
@@ -241,7 +299,7 @@ export default async function DashboardOverview() {
             <ul className="flex flex-col gap-3">
               {d.pipeline.map((p) => (
                 <li key={p.stage}>
-                  <div className="mb-1 flex justify-between text-xs md:text-sm">
+                  <div className="mb-1 flex justify-between text-sm">
                     <span className="text-muted-foreground">{p.label}</span>
                     <span className="font-semibold">{p.count}</span>
                   </div>
@@ -271,11 +329,11 @@ export default async function DashboardOverview() {
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-                        <p className="text-xs md:text-sm">
+                        <p className="text-sm">
                           <span className="font-medium">{item.name}</span>{" "}
                           <span className="text-muted-foreground">{item.action}</span>
                         </p>
-                        <span className="mt-0.5 shrink-0 text-[11px] text-muted-foreground sm:mt-0 md:text-xs">
+                        <span className="mt-0.5 shrink-0 text-xs text-muted-foreground sm:mt-0">
                           {item.time} ago
                         </span>
                       </div>
@@ -290,29 +348,34 @@ export default async function DashboardOverview() {
               })}
             </ul>
           )}
+          {d.messagesGrowthPct !== null && (
+            <p className="mt-4 border-t pt-3 text-sm text-muted-foreground">
+              Incoming messages: {formatChangePct(d.messagesGrowthPct)} compared to last week.
+            </p>
+          )}
         </Panel>
       </div>
 
       {/* 4. Useful, but nobody needs it to run today. */}
-      <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">
         <Panel title="Follow-ups today" action={{ href: "/dashboard/follow-ups", label: "Open" }}>
           <ul className="flex flex-col gap-3">
             <li className="flex items-center gap-3">
               <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
                 <MessageSquareText className="size-4" aria-hidden />
               </span>
-              <p className="flex-1 text-xs md:text-sm">Feedback requests due today</p>
+              <p className="flex-1 text-sm">Feedback requests due today</p>
               <span className="font-heading text-lg font-bold">{d.followUpsDueToday.feedback}</span>
             </li>
             <li className="flex items-center gap-3">
               <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
                 <Megaphone className="size-4" aria-hidden />
               </span>
-              <p className="flex-1 text-xs md:text-sm">Reorder reminders due today</p>
+              <p className="flex-1 text-sm">Reorder reminders due today</p>
               <span className="font-heading text-lg font-bold">{d.followUpsDueToday.reorder}</span>
             </li>
             <li className="flex items-center gap-2 border-t pt-3 text-xs text-muted-foreground md:text-sm">
-              <Star className="size-4 fill-[#E0A030] text-[#E0A030]" aria-hidden />
+              <Star className="size-4 fill-rating text-rating" aria-hidden />
               {d.feedbackAverage !== null
                 ? `${d.feedbackAverage.toFixed(1)} average rating from ${d.feedbackCount} review${d.feedbackCount === 1 ? "" : "s"}`
                 : "No reviews yet"}
@@ -345,23 +408,7 @@ export default async function DashboardOverview() {
           )}
         </Panel>
 
-        <div className="rounded-xl bg-primary p-5 text-primary-foreground shadow-sm md:p-6">
-          <div className="mb-2 flex items-center gap-2 md:gap-3">
-            <TrendingUp className="size-4 text-primary-foreground/80 md:size-5" aria-hidden />
-            <h2 className="font-heading text-xs font-semibold uppercase tracking-wider text-primary-foreground/80 md:text-sm">
-              Weekly growth
-            </h2>
-          </div>
-          <p className="mb-1 font-heading text-3xl font-bold md:text-4xl">
-            {formatChangePct(d.messagesGrowthPct) ?? "—"}
-          </p>
-          <p className="text-xs text-primary-foreground/80 md:text-sm">
-            {d.messagesGrowthPct !== null
-              ? "Change in incoming messages compared to last week."
-              : "Not enough history yet to compare with last week."}
-          </p>
-        </div>
       </div>
-    </div>
+    </PageShell>
   );
 }

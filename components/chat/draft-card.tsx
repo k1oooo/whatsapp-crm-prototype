@@ -53,8 +53,8 @@ export function DraftCard({ leadId, body }: { leadId: string; body: string }) {
             value={text}
             onChange={(e) => setText(e.target.value)}
             aria-label="Draft reply"
-            rows={3}
-            className="bg-white"
+            rows={4}
+            className="min-h-28 bg-white"
           />
           <div className="flex flex-col gap-2 sm:flex-row">
             <Button type="submit" disabled={pending || !text.trim()} className="sm:w-fit">

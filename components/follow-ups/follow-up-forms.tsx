@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, type FormEvent } from "react";
+import { useRef, useState, useTransition, type FormEvent } from "react";
 import {
   Loader2,
   Megaphone,
@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import {
   saveFollowUpSettings,
   sendBroadcast,
+  sendPromotionTest,
 } from "@/app/dashboard/follow-ups/actions";
 import { Button } from "@/components/ui/button";
 import {
@@ -45,6 +46,7 @@ export function AutomationsForm({
   testMode: boolean;
 }) {
   const [pending, start] = useTransition();
+  const [dirty, setDirty] = useState(false);
 
   function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -52,12 +54,20 @@ export function AutomationsForm({
     start(async () => {
       const res = await saveFollowUpSettings({}, data);
       if (res.error) toast.error(res.error);
-      else toast.success("Follow-up settings saved");
+      else {
+        toast.success("Follow-up settings saved");
+        setDirty(false);
+      }
     });
   }
 
   return (
-    <form onSubmit={submit} className="flex max-w-3xl flex-col gap-6">
+    <form
+      onSubmit={submit}
+      onChange={() => setDirty(true)}
+      onInput={() => setDirty(true)}
+      className="flex max-w-3xl flex-col gap-6"
+    >
       <TestModeNote testMode={testMode} />
 
       <Card>
@@ -93,15 +103,6 @@ export function AutomationsForm({
             />
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="feedback_template">WhatsApp template name</Label>
-            <Input
-              id="feedback_template"
-              name="feedback_template"
-              defaultValue={settings.feedback.templateName}
-              placeholder="feedback_request"
-            />
-          </div>
-          <div className="grid gap-1.5">
             <Label htmlFor="feedback_text">Message</Label>
             <Textarea
               id="feedback_text"
@@ -110,6 +111,24 @@ export function AutomationsForm({
               defaultValue={settings.feedback.text}
             />
           </div>
+          <details className="group rounded-lg border border-dashed px-3 py-2">
+            <summary className="flex min-h-9 cursor-pointer items-center text-sm font-medium text-muted-foreground">
+              Advanced: WhatsApp template
+            </summary>
+            <div className="grid gap-1.5 pb-2 pt-2">
+              <Label htmlFor="feedback_template">WhatsApp template name</Label>
+              <Input
+                id="feedback_template"
+                name="feedback_template"
+                defaultValue={settings.feedback.templateName}
+                placeholder="feedback_request"
+              />
+              <p className="text-sm text-muted-foreground">
+                Only needed to message customers who have not written to you in the last 24 hours.
+                See &quot;How this works&quot; below.
+              </p>
+            </div>
+          </details>
         </CardContent>
       </Card>
 
@@ -144,15 +163,6 @@ export function AutomationsForm({
             />
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="reorder_template">WhatsApp template name</Label>
-            <Input
-              id="reorder_template"
-              name="reorder_template"
-              defaultValue={settings.reorder.templateName}
-              placeholder="reorder_reminder"
-            />
-          </div>
-          <div className="grid gap-1.5">
             <Label htmlFor="reorder_text">Message</Label>
             <Textarea
               id="reorder_text"
@@ -161,6 +171,24 @@ export function AutomationsForm({
               defaultValue={settings.reorder.text}
             />
           </div>
+          <details className="group rounded-lg border border-dashed px-3 py-2">
+            <summary className="flex min-h-9 cursor-pointer items-center text-sm font-medium text-muted-foreground">
+              Advanced: WhatsApp template
+            </summary>
+            <div className="grid gap-1.5 pb-2 pt-2">
+              <Label htmlFor="reorder_template">WhatsApp template name</Label>
+              <Input
+                id="reorder_template"
+                name="reorder_template"
+                defaultValue={settings.reorder.templateName}
+                placeholder="reorder_reminder"
+              />
+              <p className="text-sm text-muted-foreground">
+                Only needed to message customers who have not written to you in the last 24 hours.
+                See &quot;How this works&quot; below.
+              </p>
+            </div>
+          </details>
         </CardContent>
       </Card>
 
@@ -225,7 +253,12 @@ export function AutomationsForm({
         </CardContent>
       </Card>
 
-      <div className="sticky bottom-4 z-10 flex justify-end rounded-xl border bg-card/95 p-3 shadow-md backdrop-blur">
+      <div className="sticky bottom-4 z-10 flex items-center justify-end gap-3 rounded-xl border bg-card/95 p-3 shadow-md backdrop-blur">
+        {dirty && (
+          <p role="status" className="text-sm font-medium text-muted-foreground">
+            You have unsaved changes
+          </p>
+        )}
         <Button type="submit" size="lg" disabled={pending}>
           {pending && <Loader2 className="animate-spin" />}
           Save
@@ -245,6 +278,17 @@ export function BroadcastForm({
   const [pending, start] = useTransition();
   const [confirming, setConfirming] = useState(false);
   const [text, setText] = useState("");
+  const [testing, setTesting] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  async function sendTest() {
+    if (!formRef.current) return;
+    setTesting(true);
+    const res = await sendPromotionTest({}, new FormData(formRef.current));
+    setTesting(false);
+    if (res.error) toast.error(res.error);
+    else toast.success("Test sent to your number", { description: res.notice });
+  }
 
   function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -265,7 +309,7 @@ export function BroadcastForm({
   }
 
   return (
-    <form onSubmit={submit} className="flex max-w-3xl flex-col gap-6">
+    <form ref={formRef} onSubmit={submit} className="flex max-w-3xl flex-col gap-6">
       <TestModeNote testMode={testMode} />
       <Card>
         <CardHeader className="flex-row items-start gap-4">
@@ -292,14 +336,6 @@ export function BroadcastForm({
             />
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="template">WhatsApp template name</Label>
-            <Input
-              id="template"
-              name="template"
-              placeholder="promo_hari_raya"
-            />
-          </div>
-          <div className="grid gap-1.5">
             <Label htmlFor="text">Message</Label>
             <Textarea
               id="text"
@@ -320,6 +356,19 @@ export function BroadcastForm({
               how to stop, like &quot;Balas STOP untuk berhenti&quot;.
             </p>
           </div>
+          <details className="group rounded-lg border border-dashed px-3 py-2">
+            <summary className="flex min-h-9 cursor-pointer items-center text-sm font-medium text-muted-foreground">
+              Advanced: WhatsApp template
+            </summary>
+            <div className="grid gap-1.5 pb-2 pt-2">
+              <Label htmlFor="template">WhatsApp template name</Label>
+              <Input id="template" name="template" placeholder="promo_hari_raya" />
+              <p className="text-sm text-muted-foreground">
+                WhatsApp only delivers a promotion to customers who have not written to you in the last
+                24 hours through a template Meta has approved. Type its name here.
+              </p>
+            </div>
+          </details>
         </CardContent>
 
         {/* Replaced CardFooter with a div that has matching padding */}
@@ -345,6 +394,16 @@ export function BroadcastForm({
               Cancel
             </Button>
           )}
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full"
+            disabled={pending || testing || !text.trim()}
+            onClick={sendTest}
+          >
+            {testing ? <Loader2 className="animate-spin" /> : <Send />}
+            Send a test to my own number
+          </Button>
           {audience === 0 && (
             <p className="text-sm text-center text-muted-foreground">
               No one has agreed to offers yet. Customers agree by replying YA to

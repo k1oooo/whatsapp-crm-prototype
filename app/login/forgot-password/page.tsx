@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { KeyRound, TriangleAlert } from "lucide-react";
 import { SubmitButton } from "@/components/SubmitButton";
@@ -5,6 +6,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { requestPasswordReset } from "./actions";
+
+export const metadata: Metadata = { title: "Reset your password" };
 
 export default async function ForgotPasswordPage({
   searchParams,

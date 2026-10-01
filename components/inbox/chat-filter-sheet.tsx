@@ -23,7 +23,7 @@ function Row({ label, active, onClick }: { label: string; active: boolean; onCli
       aria-checked={active}
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left text-sm font-medium outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/40",
+        "flex min-h-12 w-full items-center gap-3 rounded-lg border border-control px-3 py-2.5 text-left text-sm font-medium outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/40",
         active ? "border-primary bg-secondary text-foreground" : "hover:bg-accent",
       )}
     >
@@ -31,7 +31,7 @@ function Row({ label, active, onClick }: { label: string; active: boolean; onCli
         aria-hidden
         className={cn(
           "flex size-5 shrink-0 items-center justify-center rounded-md border",
-          active ? "border-primary bg-primary text-primary-foreground" : "border-input",
+          active ? "border-primary bg-primary text-primary-foreground" : "border-control",
         )}
       >
         {active && <Check className="size-3.5" />}
@@ -64,7 +64,7 @@ export function ChatFilterSheet({
           {selected.size > 0 && (
             <Badge
               variant="warning"
-              className="absolute -top-1.5 -right-1.5 size-4 justify-center rounded-full p-0 text-[10px]"
+              className="absolute -top-2 -right-2 size-5 justify-center rounded-full p-0 text-xs"
             >
               {selected.size}
             </Badge>
