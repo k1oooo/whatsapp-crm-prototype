@@ -38,7 +38,7 @@ function SelectContent({
         data-slot="select-content"
         position={position}
         className={cn(
-          "relative z-50 max-h-72 min-w-[8rem] overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+          "relative z-50 max-h-72 w-[var(--radix-select-trigger-width)] min-w-[8rem] overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
           position === "popper" && "data-[side=bottom]:translate-y-1 data-[side=top]:-translate-y-1",
           className,
         )}
@@ -70,4 +70,24 @@ function SelectItem({ className, children, ...props }: React.ComponentProps<type
   );
 }
 
-export { Select, SelectContent, SelectItem, SelectTrigger, SelectValue };
+// What goes inside a <SelectItem>: an optional marker (a colour dot or an icon), the label, and an
+// optional muted count. The closed field mirrors it, so a choice reads the same open or shut.
+function SelectOption({
+  leading,
+  count,
+  children,
+}: {
+  leading?: React.ReactNode;
+  count?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <span className="flex items-center gap-2">
+      {leading}
+      {children}
+      {count !== undefined && <span className="text-xs text-muted-foreground">{count}</span>}
+    </span>
+  );
+}
+
+export { Select, SelectContent, SelectItem, SelectOption, SelectTrigger, SelectValue };

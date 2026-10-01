@@ -37,12 +37,12 @@ export const metadata: Metadata = { title: "Overview" };
 
 const SOURCE_STYLE: Record<
   "customer" | "owner" | "bot" | "dashboard",
-  { icon: LucideIcon; tone: string }
+  { icon: LucideIcon }
 > = {
-  customer: { icon: MessageSquareText, tone: "bg-info text-info-foreground" },
-  owner: { icon: CircleCheck, tone: "bg-secondary text-primary" },
-  bot: { icon: Bot, tone: "bg-primary/10 text-primary" },
-  dashboard: { icon: Banknote, tone: "bg-success text-success-foreground" },
+  customer: { icon: MessageSquareText },
+  owner: { icon: CircleCheck },
+  bot: { icon: Bot },
+  dashboard: { icon: Banknote },
 };
 
 function Trend({ pct, digits = 0 }: { pct: number | null; digits?: number }) {
@@ -263,7 +263,6 @@ export default async function DashboardOverview() {
             label="Waiting for payment"
             value={d.waitingForPayment}
             icon={Banknote}
-            tone="bg-info text-info-foreground"
             href="/dashboard/inbox"
           />
         </li>
@@ -272,7 +271,6 @@ export default async function DashboardOverview() {
             label="Paid orders"
             value={d.paidOrders}
             icon={CircleCheck}
-            tone="bg-success text-success-foreground"
           />
         </li>
       </ul>
@@ -321,12 +319,10 @@ export default async function DashboardOverview() {
           ) : (
             <ul className="flex flex-col gap-4 md:gap-5">
               {d.activity.map((item) => {
-                const { icon: Icon, tone } = SOURCE_STYLE[item.source];
+                const { icon: Icon } = SOURCE_STYLE[item.source];
                 return (
                   <li key={item.id} className="flex items-start gap-3 md:gap-4">
-                    <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-full md:size-10", tone)}>
-                      <Icon className="size-4 md:size-5" aria-hidden />
-                    </span>
+                    <Icon className="mt-0.5 size-4 shrink-0 text-primary md:mt-0 md:size-5" aria-hidden />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
                         <p className="text-sm">
@@ -361,16 +357,12 @@ export default async function DashboardOverview() {
         <Panel title="Follow-ups today" action={{ href: "/dashboard/follow-ups", label: "Open" }}>
           <ul className="flex flex-col gap-3">
             <li className="flex items-center gap-3">
-              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
-                <MessageSquareText className="size-4" aria-hidden />
-              </span>
+              <MessageSquareText className="size-4 shrink-0 text-primary md:size-5" aria-hidden />
               <p className="flex-1 text-sm">Feedback requests due today</p>
               <span className="font-heading text-lg font-bold">{d.followUpsDueToday.feedback}</span>
             </li>
             <li className="flex items-center gap-3">
-              <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
-                <Megaphone className="size-4" aria-hidden />
-              </span>
+              <Megaphone className="size-4 shrink-0 text-primary md:size-5" aria-hidden />
               <p className="flex-1 text-sm">Reorder reminders due today</p>
               <span className="font-heading text-lg font-bold">{d.followUpsDueToday.reorder}</span>
             </li>

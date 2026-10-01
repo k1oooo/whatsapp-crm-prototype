@@ -72,11 +72,11 @@ export function AutomationsForm({
 
       <Card>
         <CardHeader className="flex-row items-start gap-4">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
-            <MessageSquareText className="size-5" aria-hidden />
-          </span>
           <div className="flex-1">
-            <CardTitle>Ask for feedback</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <MessageSquareText className="size-4 shrink-0 text-primary md:size-5" aria-hidden />
+              Ask for feedback
+            </CardTitle>
             <CardDescription className="mt-1">
               After an order is paid, ask the customer to rate it. Happy
               customers get your review link. Unhappy ones come to you.
@@ -134,11 +134,11 @@ export function AutomationsForm({
 
       <Card>
         <CardHeader className="flex-row items-start gap-4">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
-            <RefreshCw className="size-5" aria-hidden />
-          </span>
           <div className="flex-1">
-            <CardTitle>Remind them to reorder</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <RefreshCw className="size-4 shrink-0 text-primary md:size-5" aria-hidden />
+              Remind them to reorder
+            </CardTitle>
             <CardDescription className="mt-1">
               A friendly nudge some weeks after their order. If they reply, the
               assistant takes the new order.
@@ -194,11 +194,11 @@ export function AutomationsForm({
 
       <Card>
         <CardHeader className="flex-row items-start gap-4">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
-            <Star className="size-5" aria-hidden />
-          </span>
           <div className="flex-1">
-            <CardTitle>Review link and template language</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Star className="size-4 shrink-0 text-primary md:size-5" aria-hidden />
+              Review link and template language
+            </CardTitle>
             <CardDescription className="mt-1">
               The review link (for example your Google Maps review page) is sent
               to customers who rate you 4 or 5.
@@ -313,11 +313,11 @@ export function BroadcastForm({
       <TestModeNote testMode={testMode} />
       <Card>
         <CardHeader className="flex-row items-start gap-4">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
-            <Megaphone className="size-5" aria-hidden />
-          </span>
           <div className="flex-1">
-            <CardTitle>Send a promotion</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Megaphone className="size-4 shrink-0 text-primary md:size-5" aria-hidden />
+              Send a promotion
+            </CardTitle>
             <CardDescription className="mt-1">
               Goes to customers who have paid for an order and agreed to receive
               offers. {audience}{" "}

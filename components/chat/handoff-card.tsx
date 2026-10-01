@@ -145,16 +145,14 @@ export function HandoffCard({
     <li className="my-2">
       <div className="rounded-2xl border border-warning-border bg-warning p-4 text-warning-foreground shadow-xs">
         <div className="flex items-start gap-3">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/70">
-            <ReasonIcon reason={reason} className="size-5" />
-          </span>
+          <ReasonIcon reason={reason} className="mt-0.5 size-5 shrink-0" />
           <div className="min-w-0 flex-1">
             <p className="font-semibold">Needs you: {title}</p>
             {note && <p className="mt-0.5">{note}</p>}
           </div>
         </div>
 
-        <div className="mt-3 flex flex-col gap-3 sm:pl-12">
+        <div className="mt-3 flex flex-col gap-3 sm:pl-8">
           {isPayment && (
             countdown === null ? (
               <Button onClick={confirm} disabled={pending} size="lg" className="w-full sm:w-fit">

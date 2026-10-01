@@ -14,7 +14,7 @@ export default function OverviewLoading() {
         <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {[0, 1].map((i) => (
             <li key={i} className="flex items-center gap-4 rounded-xl border bg-card p-5 md:p-6">
-              <Skeleton className="size-10 shrink-0 rounded-xl md:size-12" />
+              <Skeleton className="size-5 shrink-0 rounded-md md:size-6" />
               <div className="flex flex-col gap-2">
                 <Skeleton className="h-3 w-24" />
                 <Skeleton className="h-6 w-12" />

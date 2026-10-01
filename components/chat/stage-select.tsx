@@ -5,7 +5,8 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { moveStage } from "@/app/dashboard/actions";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { StageDot } from "@/components/stage-dot";
+import { Select, SelectContent, SelectItem, SelectOption, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { STAGES, STAGE_LABEL, type Stage } from "@/lib/leads";
 
 // Lets the owner put a customer in the right stage, for example Won or Lost when they know the
@@ -40,7 +41,7 @@ export function StageSelect({ leadId, stage }: { leadId: string; stage: Stage })
           <SelectContent>
             {STAGES.map((s) => (
               <SelectItem key={s} value={s}>
-                {STAGE_LABEL[s]}
+                <SelectOption leading={<StageDot stage={s} />}>{STAGE_LABEL[s]}</SelectOption>
               </SelectItem>
             ))}
           </SelectContent>

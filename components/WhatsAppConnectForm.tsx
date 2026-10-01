@@ -109,11 +109,9 @@ export function WhatsAppConnectForm({
     <form onSubmit={submit} className="flex flex-col gap-6">
       <Card>
         <CardHeader className="flex flex-col sm:flex-row items-start gap-3 sm:gap-4">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
-            <MessageCircle className="size-5" aria-hidden />
-          </span>
           <div className="flex-1 min-w-0">
-            <CardTitle className="text-lg">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <MessageCircle className="size-4 shrink-0 text-primary md:size-5" aria-hidden />
               1. Set up your app in Meta
             </CardTitle>
             <CardDescription className="mt-1 text-xs sm:text-sm leading-relaxed">

@@ -21,9 +21,7 @@ export default async function SignupPage({
     <main className="flex min-h-dvh items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
-          <span className="flex size-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-            <MessagesSquare className="size-7" aria-hidden />
-          </span>
+          <MessagesSquare className="size-8 text-primary" aria-hidden />
           <h1 className="font-heading text-3xl leading-tight font-bold">Create your account</h1>
           <p className="text-muted-foreground">
             Set up your business, then connect WhatsApp in a minute.

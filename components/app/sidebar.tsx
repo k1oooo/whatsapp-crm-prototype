@@ -65,9 +65,9 @@ export function Sidebar({
             <span className="flex size-11 shrink-0 items-center justify-center">
               <span
                 className={cn(
-                  "relative flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-colors duration-200 group-focus-visible/logo:ring-2 group-focus-visible/logo:ring-ring/50",
+                  "relative flex size-10 items-center justify-center rounded-xl text-primary transition-colors duration-200 group-focus-visible/logo:ring-2 group-focus-visible/logo:ring-ring/50",
                   collapsed &&
-                    "group-hover/logo:bg-secondary group-hover/logo:text-foreground",
+                    "group-hover/logo:text-foreground",
                 )}
               >
                 <MessagesSquare
@@ -123,7 +123,7 @@ export function Sidebar({
             (collapsed ? (
               <span
                 title="Test mode: replies are not sent to customers"
-                className="flex h-9 items-center justify-center rounded-lg bg-info text-info-foreground"
+                className="flex h-9 items-center justify-center text-primary"
               >
                 <FlaskConical className="size-4" aria-label="Test mode" />
               </span>

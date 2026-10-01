@@ -157,8 +157,17 @@ export function KnowledgeView({
                 ...KB_CATEGORIES.map((c) => ({
                   value: c as Tab,
                   label: KB_CATEGORY_LABEL[c],
+                  count:
+                    c === "other"
+                      ? undefined
+                      : entries.filter((e) => e.category === c).length || undefined,
                 })),
-                { value: "documents" as Tab, label: "PDF files", icon: FileText },
+                {
+                  value: "documents" as Tab,
+                  label: "PDF files",
+                  icon: FileText,
+                  count: documents.length || undefined,
+                },
               ]}
             />
           </div>

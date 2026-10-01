@@ -78,11 +78,11 @@ export function SettingsForm({
       <input type="hidden" name="auto_reply" value={on ? "on" : "off"} />
       <Card>
         <CardHeader className="flex-row items-start gap-4">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
-            <MessageCircle className="size-5" aria-hidden />
-          </span>
           <div className="flex-1">
-            <CardTitle>WhatsApp connection</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <MessageCircle className="size-4 shrink-0 text-primary md:size-5" aria-hidden />
+              WhatsApp connection
+            </CardTitle>
             <CardDescription className="mt-1">
               {waConnected
                 ? "Connected. Update the number or webhook here."
@@ -102,11 +102,11 @@ export function SettingsForm({
 
       <Card>
         <CardHeader className="flex-row items-start gap-4">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
-            <Bot className="size-5" aria-hidden />
-          </span>
           <div className="flex-1">
-            <CardTitle>Answer customers automatically</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Bot className="size-4 shrink-0 text-primary md:size-5" aria-hidden />
+              Answer customers automatically
+            </CardTitle>
             <CardDescription className="mt-1">
               The assistant replies on its own. It hands the chat to you for
               discounts, payments to check, and anything it is not sure about.
@@ -153,11 +153,11 @@ export function SettingsForm({
 
       <Card>
         <CardHeader className="flex-row items-start gap-4">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
-            <BookOpen className="size-5" aria-hidden />
-          </span>
           <div className="flex-1">
-            <CardTitle>What the assistant knows</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <BookOpen className="size-4 shrink-0 text-primary md:size-5" aria-hidden />
+              What the assistant knows
+            </CardTitle>
             <CardDescription className="mt-1">
               Menu, prices, location, hours and FAQ now live on their own page,
               organised into sections instead of one long text box.
@@ -176,11 +176,11 @@ export function SettingsForm({
 
       <Card>
         <CardHeader className="flex-row items-start gap-4">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
-            <Landmark className="size-5" aria-hidden />
-          </span>
           <div className="flex-1">
-            <CardTitle>Payment details</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Landmark className="size-4 shrink-0 text-primary md:size-5" aria-hidden />
+              Payment details
+            </CardTitle>
             <CardDescription className="mt-1">
               Sent word for word to a customer right after they confirm an
               order.

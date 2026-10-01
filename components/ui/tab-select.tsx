@@ -5,6 +5,7 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectOption,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -14,6 +15,7 @@ export interface TabSelectOption<T extends string> {
   value: T;
   label: string;
   icon?: LucideIcon;
+  count?: number;
 }
 
 /**
@@ -44,10 +46,12 @@ export function TabSelect<T extends string>({
       <SelectContent>
         {options.map((o) => (
           <SelectItem key={o.value} value={o.value}>
-            <span className="flex items-center gap-2">
-              {o.icon && <o.icon className="size-4 text-muted-foreground" aria-hidden />}
+            <SelectOption
+              leading={o.icon && <o.icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />}
+              count={o.count}
+            >
               {o.label}
-            </span>
+            </SelectOption>
           </SelectItem>
         ))}
       </SelectContent>

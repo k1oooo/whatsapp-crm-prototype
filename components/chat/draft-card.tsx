@@ -38,16 +38,14 @@ export function DraftCard({ leadId, body }: { leadId: string; body: string }) {
     <li className="my-2">
       <div className="rounded-2xl border border-info-border bg-info p-4 text-info-foreground shadow-xs">
         <div className="flex items-start gap-3">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-white/70">
-            <Sparkles className="size-5" aria-hidden />
-          </span>
+          <Sparkles className="mt-0.5 size-5 shrink-0" aria-hidden />
           <div className="min-w-0 flex-1">
             <p className="font-semibold">Draft reply ready</p>
             <p className="mt-0.5 text-sm">Nothing has been sent yet. Edit it, then send, or discard it.</p>
           </div>
         </div>
 
-        <form onSubmit={send} className="mt-3 flex flex-col gap-2 sm:pl-12">
+        <form onSubmit={send} className="mt-3 flex flex-col gap-2 sm:pl-8">
           <Textarea
             name="body"
             value={text}

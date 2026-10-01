@@ -46,8 +46,8 @@ export function AssistantToggle({
     <span
       aria-hidden
       className={cn(
-        "relative flex size-9 shrink-0 items-center justify-center rounded-lg transition-colors",
-        on ? "bg-secondary text-primary" : "bg-muted text-muted-foreground",
+        "relative flex size-9 shrink-0 items-center justify-center transition-colors",
+        on ? "text-primary" : "text-muted-foreground",
       )}
     >
       <Bot className="size-5" />

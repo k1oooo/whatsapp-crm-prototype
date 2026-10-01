@@ -5,11 +5,12 @@ import { Search } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { LeadCard } from "@/components/LeadCard";
 import { Input } from "@/components/ui/input";
+import { StageDot } from "@/components/stage-dot";
+import { Select, SelectContent, SelectItem, SelectOption, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { STAGES, STAGE_DOT, STAGE_LABEL, displayName, rm, type Lead, type Stage } from "@/lib/leads";
 import { cn } from "@/lib/utils";
 
-// Phones: one stage at a time, with a strip of stages and their counts above it, so the whole
-//         pipeline is visible at a glance.
+// Phones: one stage at a time, picked from a dropdown that shows each stage with its count.
 // Tablet and laptop: every stage side by side, scrolling sideways, with the next column peeking in.
 // Wide screens (xl): all five stages fit in a grid.
 export function PipelineBoard({ leads, coldAfterDays }: { leads: Lead[]; coldAfterDays: number }) {
@@ -54,30 +55,22 @@ export function PipelineBoard({ leads, coldAfterDays }: { leads: Lead[]; coldAft
         />
       </div>
 
-      {/* Phones only: the stages, with counts. */}
-      <div role="tablist" aria-label="Stage" className="flex shrink-0 gap-1.5 overflow-x-auto pb-0.5 md:hidden">
-        {STAGES.map((stage) => {
-          const on = stage === mobileStage;
-          return (
-            <button
-              key={stage}
-              type="button"
-              role="tab"
-              aria-selected={on}
-              onClick={() => setMobileStage(stage)}
-              className={cn(
-                "flex h-10 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-sm font-medium outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/40",
-                on ? "border-primary bg-primary text-primary-foreground" : "border-control bg-card hover:bg-accent",
-              )}
-            >
-              <span aria-hidden className="size-2 rounded-full" style={{ background: STAGE_DOT[stage] }} />
-              {STAGE_LABEL[stage]}
-              <span className={cn("text-xs", on ? "text-primary-foreground" : "text-muted-foreground")}>
-                {byStage.get(stage)?.length ?? 0}
-              </span>
-            </button>
-          );
-        })}
+      {/* Phones only: a dropdown for the stage, with counts. */}
+      <div className="shrink-0 md:hidden">
+        <Select value={mobileStage} onValueChange={(v) => setMobileStage(v as Stage)}>
+          <SelectTrigger className="w-full" aria-label="Stage">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {STAGES.map((stage) => (
+              <SelectItem key={stage} value={stage}>
+                <SelectOption leading={<StageDot stage={stage} />} count={byStage.get(stage)?.length ?? 0}>
+                  {STAGE_LABEL[stage]}
+                </SelectOption>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div
@@ -91,7 +84,6 @@ export function PipelineBoard({ leads, coldAfterDays }: { leads: Lead[]; coldAft
             <section
               key={stage}
               aria-label={STAGE_LABEL[stage]}
-              role="tabpanel"
               className={cn(
                 "min-h-0 w-full snap-start flex-col rounded-xl border bg-muted/20 p-3 md:w-72 md:shrink-0 xl:w-auto",
                 stage === mobileStage ? "flex" : "hidden md:flex",

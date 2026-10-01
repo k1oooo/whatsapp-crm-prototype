@@ -38,41 +38,41 @@ import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Billing" };
 
-const TONE: Record<PlanKind, { icon: LucideIcon; ring: string; chip: string }> =
+const TONE: Record<PlanKind, { icon: LucideIcon; iconColor: string; chip: string }> =
   {
     none: {
       icon: Hourglass,
-      ring: "bg-warning text-warning-foreground",
+      iconColor: "text-warning-foreground",
       chip: "bg-warning text-warning-foreground",
     },
     trial: {
       icon: Hourglass,
-      ring: "bg-info text-info-foreground",
+      iconColor: "text-primary",
       chip: "bg-info text-info-foreground",
     },
     trial_ended: {
       icon: AlertTriangle,
-      ring: "bg-warning text-warning-foreground",
+      iconColor: "text-warning-foreground",
       chip: "bg-warning text-warning-foreground",
     },
     active: {
       icon: BadgeCheck,
-      ring: "bg-success text-success-foreground",
+      iconColor: "text-primary",
       chip: "bg-success text-success-foreground",
     },
     past_due: {
       icon: AlertTriangle,
-      ring: "bg-warning text-warning-foreground",
+      iconColor: "text-warning-foreground",
       chip: "bg-warning text-warning-foreground",
     },
     canceled: {
       icon: AlertTriangle,
-      ring: "bg-warning text-warning-foreground",
+      iconColor: "text-warning-foreground",
       chip: "bg-warning text-warning-foreground",
     },
     incomplete: {
       icon: AlertTriangle,
-      ring: "bg-warning text-warning-foreground",
+      iconColor: "text-warning-foreground",
       chip: "bg-warning text-warning-foreground",
     },
   };
@@ -222,14 +222,10 @@ export default async function BillingPage({
         {/* Where you stand */}
         <Card className="overflow-hidden">
           <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-start sm:p-6">
-            <span
-              className={cn(
-                "flex size-10 md:size-12 shrink-0 items-center justify-center rounded-full",
-                tone.ring,
-              )}
-            >
-              <Icon className="size-5 md:size-6" aria-hidden />
-            </span>
+            <Icon
+              className={cn("mt-0.5 size-5 shrink-0 md:size-6", tone.iconColor)}
+              aria-hidden
+            />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-xl md:text-2xl font-bold leading-tight">
@@ -337,9 +333,7 @@ export default async function BillingPage({
                 <ul className="mt-4 grid gap-3 sm:grid-cols-2">
                   {INCLUDED.map(({ icon: ItemIcon, title, body }) => (
                     <li key={title} className="flex gap-3">
-                      <span className="mt-0.5 flex size-7 md:size-8 shrink-0 items-center justify-center rounded-full bg-secondary text-secondary-foreground">
-                        <ItemIcon className="size-3.5 md:size-4" aria-hidden />
-                      </span>
+                      <ItemIcon className="mt-0.5 size-4 shrink-0 text-primary md:size-5" aria-hidden />
                       <span>
                         <span className="block text-sm md:text-base font-medium leading-snug">
                           {title}

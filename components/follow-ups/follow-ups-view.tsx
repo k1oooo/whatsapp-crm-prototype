@@ -106,9 +106,7 @@ function QueueRow({ item }: { item: QueueItem }) {
   return (
     <li>
       <Card className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center">
-        <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
-          <Icon className="size-5" aria-hidden />
-        </span>
+        <Icon className="size-4 shrink-0 text-primary md:size-5" aria-hidden />
         <div className="min-w-0 flex-1">
           <p className="flex flex-wrap items-center gap-x-2 text-sm sm:text-base">
             {item.lead ? (

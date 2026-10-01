@@ -107,6 +107,21 @@
   h3 {
     @apply font-heading;
   }
+
+  /* Tailwind v4 no longer gives buttons a pointer cursor, so it is set once here for everything
+     clickable. A utility class on an element (for example cursor-default) still wins over this. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  a[href],
+  summary,
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled) {
+    cursor: pointer;
+  }
+  button:disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
 }
 
 @layer utilities {

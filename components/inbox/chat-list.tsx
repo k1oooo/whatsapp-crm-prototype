@@ -66,19 +66,7 @@ function Item({ chat, active }: { chat: ChatSummary; active: boolean }) {
   );
 }
 
-// The views used all day, one tap each. The sheet next to the search box still has every filter.
-const QUICK: { label: string; ids: FilterId[] }[] = [
-  { label: "All", ids: [] },
-  { label: "Needs you", ids: ["needs_you"] },
-  { label: "Drafts", ids: ["has_draft"] },
-  { label: "Payment", ids: ["waiting_payment"] },
-];
-
 const NO_HITS: Set<string> = new Set();
-
-function sameSet(a: Set<FilterId>, ids: FilterId[]) {
-  return a.size === ids.length && ids.every((id) => a.has(id));
-}
 
 export function ChatList({ chats, activeId }: { chats: ChatSummary[]; activeId: string | null }) {
   const needsCount = chats.filter((c) => c.needsYou).length;
@@ -118,14 +106,7 @@ export function ChatList({ chats, activeId }: { chats: ChatSummary[]; activeId: 
     [chats, filters, q, hits],
   );
 
-  const counts = useMemo(() => {
-    const count = (ids: FilterId[]) => (ids.length === 0 ? chats.length : chats.filter((c) => matchesFilters(c, new Set(ids))).length);
-    return QUICK.map((s) => count(s.ids));
-  }, [chats]);
-
   const activeChips = ALL_FILTERS.filter((f) => filters.has(f.id));
-  // Chips are only needed for filters the quick row cannot show.
-  const customChips = QUICK.some((s) => sameSet(filters, s.ids)) ? [] : activeChips;
 
   function removeFilter(id: FilterId) {
     const next = new Set(filters);
@@ -156,30 +137,9 @@ export function ChatList({ chats, activeId }: { chats: ChatSummary[]; activeId: 
           <ChatFilterSheet selected={filters} onChange={setFilters} />
         </div>
 
-        <div role="group" aria-label="Show" className="flex gap-1.5 overflow-x-auto pb-0.5">
-          {QUICK.map((s, i) => {
-            const on = sameSet(filters, s.ids);
-            return (
-              <button
-                key={s.label}
-                type="button"
-                aria-pressed={on}
-                onClick={() => setFilters(new Set(s.ids))}
-                className={cn(
-                  "flex h-10 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-sm font-medium outline-none transition-colors focus-visible:ring-[3px] focus-visible:ring-ring/40",
-                  on ? "border-primary bg-primary text-primary-foreground" : "border-control bg-card hover:bg-accent",
-                )}
-              >
-                {s.label}
-                <span className={cn("text-xs", on ? "text-primary-foreground" : "text-muted-foreground")}>{counts[i]}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        {customChips.length > 0 && (
+        {activeChips.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
-            {customChips.map((f) => (
+            {activeChips.map((f) => (
               <button
                 key={f.id}
                 type="button"

@@ -17,12 +17,10 @@ export default async function Inbox() {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-6 md:gap-8 bg-chat p-4 md:p-8 text-center">
       <div className="flex flex-col items-center gap-2 md:gap-3">
-        <span className="flex size-12 md:size-14 items-center justify-center rounded-2xl bg-card shadow-xs">
-          <MessagesSquare
-            className="size-6 md:size-7 text-primary"
-            aria-hidden
-          />
-        </span>
+        <MessagesSquare
+          className="size-8 md:size-10 text-primary"
+          aria-hidden
+        />
         <h1 className="font-heading text-xl md:text-2xl font-bold">
           Pick a chat
         </h1>

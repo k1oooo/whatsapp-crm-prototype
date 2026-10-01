@@ -8,7 +8,6 @@ export function StatCard({
   value,
   hint,
   icon: Icon,
-  tone,
   href,
   className,
 }: {
@@ -16,16 +15,13 @@ export function StatCard({
   value: React.ReactNode;
   hint?: React.ReactNode;
   icon?: LucideIcon;
-  tone?: string;
   href?: string;
   className?: string;
 }) {
   const body = (
     <>
       {Icon && (
-        <span className={cn("flex size-10 shrink-0 items-center justify-center rounded-xl md:size-12", tone ?? "bg-secondary text-primary")}>
-          <Icon className="size-5 md:size-6" aria-hidden />
-        </span>
+        <Icon className="size-5 shrink-0 text-primary md:size-6" aria-hidden />
       )}
       <div className="min-w-0">
         <p className="text-xs font-medium text-muted-foreground md:text-sm">{label}</p>
