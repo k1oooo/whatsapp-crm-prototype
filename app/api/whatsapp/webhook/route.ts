@@ -1,6 +1,7 @@
 import { after, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { processPayload, verifySignature, type WaWebhookPayload } from "@/lib/whatsapp";
+import { verifyWebhook } from "@/lib/webhook-auth";
+import { processPayload, type WaWebhookPayload } from "@/lib/whatsapp";
 
 export const runtime = "nodejs";
 
@@ -32,8 +33,8 @@ export async function GET(req: NextRequest) {
 }
 
 // Meta sends every incoming message and coexistence echo here. A payload is signed with the
-// secret of whichever Meta app sent it, so we peek at the first entry to find out which
-// business (and therefore which secret) this is, before trusting the signature.
+// secret of whichever Meta app sent it, so each phone number it mentions is checked against that
+// business's secret (see lib/webhook-auth.ts) before anything in it is trusted.
 export async function POST(req: NextRequest) {
   const raw = await req.text();
 
@@ -44,20 +45,10 @@ export async function POST(req: NextRequest) {
     return new Response("Bad JSON", { status: 400 });
   }
 
-  const phoneNumberId = payload.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id;
   const admin = createAdminClient();
 
-  let appSecret: string | undefined = process.env.WHATSAPP_APP_SECRET;
-  if (phoneNumberId) {
-    const { data: business } = await admin
-      .from("businesses")
-      .select("wa_app_secret")
-      .eq("wa_phone_number_id", phoneNumberId)
-      .maybeSingle();
-    if (business?.wa_app_secret) appSecret = business.wa_app_secret;
-  }
-
-  if (!verifySignature(raw, req.headers.get("x-hub-signature-256"), appSecret)) {
+  // Every phone number in the payload must verify against its own business's secret, not just the first.
+  if (!(await verifyWebhook(admin, raw, req.headers.get("x-hub-signature-256"), payload))) {
     return new Response("Invalid signature", { status: 401 });
   }
 

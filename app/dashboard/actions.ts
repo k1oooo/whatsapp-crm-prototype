@@ -1,10 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { CONSENT_ASK, readSettings } from "@/lib/follow-up-settings";
 import { scheduleAfterPayment } from "@/lib/follow-ups";
-import { sendWhatsAppText } from "@/lib/send";
+import { resolveToken, sendMode, sendWhatsAppText } from "@/lib/send";
+import { checkPhoneNumberAccess } from "@/lib/whatsapp-connection";
 import {
   draftFollowUp,
   writeConfirmation,
@@ -186,6 +188,34 @@ export async function saveWhatsAppConnection(
   if (appSecret !== undefined) update.wa_app_secret = appSecret;
   if (accessToken !== undefined) update.wa_access_token = accessToken;
   if (verifyToken !== undefined) update.wa_verify_token = verifyToken;
+
+  const { data: existing } = await supabase
+    .from("businesses")
+    .select("wa_phone_number_id, wa_app_secret, wa_access_token, wa_verify_token")
+    .eq("owner_id", user.id)
+    .maybeSingle();
+
+  // What the business will have saved once this form is applied.
+  const after = (key: "wa_app_secret" | "wa_access_token" | "wa_verify_token") =>
+    (key in update ? update[key] : (existing?.[key] as string | null | undefined)) ?? null;
+  const effectiveToken = after("wa_access_token");
+
+  // A business with its own Meta credentials is verified only against its own app secret. Without
+  // it nobody could prove a message really came from Meta, so refuse to save that half-set-up state.
+  if ((effectiveToken || after("wa_verify_token")) && !after("wa_app_secret")) {
+    return {
+      error:
+        "Add your Meta app secret too. Without it, messages for this number cannot be verified as coming from WhatsApp.",
+    };
+  }
+
+  // Prove the owner can really use this number. Skipped in test mode, where there is no live token.
+  const tokenToCheck = resolveToken(effectiveToken);
+  const changed = phoneNumberId !== existing?.wa_phone_number_id || accessToken !== undefined;
+  if (changed && tokenToCheck && sendMode(effectiveToken) === "live") {
+    const check = await checkPhoneNumberAccess(phoneNumberId, tokenToCheck);
+    if (!check.ok) return { error: check.error };
+  }
 
   const { error } = await supabase
     .from("businesses")
@@ -403,6 +433,8 @@ export async function confirmPayment(
 
   const ctx = await loadContext(supabase, leadId);
   if (typeof ctx === "string") return { error: ctx };
+  // Cheap early exit for the common case. The conditional update below is what actually guards the race.
+  if (ctx.lead.order_status === "paid") return { error: "This order is already marked as paid." };
 
   // After-sale follow-up settings. Missing columns (migration 0007) just mean follow-ups are off.
   const { data: biz } = await supabase
@@ -422,6 +454,23 @@ export async function confirmPayment(
   });
   if (askConsent) body += `\n\n${CONSENT_ASK}`;
 
+  // Claim the order BEFORE messaging the customer. Two clicks (a double tap, two open tabs) both read
+  // "not paid yet" above, so the claim is one conditional update that only one of them can win.
+  const paidAt = new Date().toISOString();
+  const previousStatus = ctx.lead.order_status ?? null;
+  const { data: claimed, error: claimError } = await supabase
+    .from("leads")
+    .update({ order_status: "paid" })
+    .eq("id", leadId)
+    .or("order_status.is.null,order_status.neq.paid")
+    .select("id")
+    .maybeSingle();
+  if (claimError) {
+    console.error("Could not mark the order as paid (is migration 0006 applied?)", claimError.message);
+    return { error: "Could not mark the order as paid. Try again." };
+  }
+  if (!claimed) return { error: "This order is already marked as paid." };
+
   // The order is paid: mark it won, and lock the stage so the AI does not reopen it.
   const locked = [...new Set([...(ctx.lead.locked_fields ?? []), "stage"])];
   const result = await deliver(supabase, ctx, body, "bot", {
@@ -429,40 +478,38 @@ export async function confirmPayment(
     locked_fields: locked,
   });
 
-  if (result.ok) {
+  if (!result.ok) {
+    // The customer was not told, so the order is not paid yet. Give the click back.
     const { error } = await supabase
       .from("leads")
-      .update({ order_status: "paid" })
-      .eq("id", leadId);
-    if (error)
-      console.error(
-        "Could not mark the order as paid (is migration 0006 applied?)",
-        error.message,
-      );
+      .update({ order_status: previousStatus })
+      .eq("id", leadId)
+      .eq("order_status", "paid");
+    if (error) console.error("Could not undo the paid status after a failed send", leadId, error.message);
+    return result;
+  }
 
-    // Queue the after-sale follow-ups for this order.
-    const paidAt = new Date().toISOString();
-    const { error: paidError } = await supabase
-      .from("leads")
-      .update({
-        paid_at: paidAt,
-        ...(askConsent ? { consent_asked_at: paidAt } : {}),
-      })
-      .eq("id", leadId);
-    if (paidError) {
-      console.error(
-        "Could not record the payment time (is migration 0007 applied?)",
-        paidError.message,
-      );
-    } else if (followUpsOn) {
-      await scheduleAfterPayment(supabase, {
-        businessId: ctx.lead.business_id,
-        leadId,
-        deadline: ctx.lead.deadline,
-        paidAt,
-        settings,
-      });
-    }
+  // Record when it was paid and queue the after-sale follow-ups for this order.
+  const { error: paidError } = await supabase
+    .from("leads")
+    .update({
+      paid_at: paidAt,
+      ...(askConsent ? { consent_asked_at: paidAt } : {}),
+    })
+    .eq("id", leadId);
+  if (paidError) {
+    console.error(
+      "Could not record the payment time (is migration 0007 applied?)",
+      paidError.message,
+    );
+  } else if (followUpsOn) {
+    await scheduleAfterPayment(supabase, {
+      businessId: ctx.lead.business_id,
+      leadId,
+      deadline: ctx.lead.deadline,
+      paidAt,
+      settings,
+    });
   }
   return result;
 }
@@ -590,6 +637,25 @@ export async function toggleAutoReply(next: boolean): Promise<FormState> {
   return { ok: true };
 }
 
+/**
+ * Put a claimed draft back after the send failed, so the owner can try again. The owner is
+ * deliberately not allowed to insert drafts (only the assistant writes them), so this uses the
+ * server-only admin client. A unique violation means the assistant wrote a newer draft in the
+ * meantime: that one wins and this one is dropped.
+ */
+async function restoreDraft(draft: {
+  lead_id: string;
+  business_id: string;
+  body: string;
+  order_status: string | null;
+  order_summary: string | null;
+}) {
+  const { error } = await createAdminClient().from("draft_replies").insert(draft);
+  if (error && error.code !== "23505") {
+    console.error("Could not put the draft back after a failed send", draft.lead_id, error.message);
+  }
+}
+
 /** Send a draft the assistant wrote, exactly as written or edited first. Then clear the draft. */
 export async function sendDraftReply(
   leadId: string,
@@ -599,10 +665,16 @@ export async function sendDraftReply(
   void _prev;
   const supabase = await createClient();
 
+  const ctx = await loadContext(supabase, leadId);
+  if (typeof ctx === "string") return { error: ctx };
+
+  // Claim the draft by deleting it and reading back what was deleted. Only one request can get the
+  // row, so a double click sends once. (The old order, send first and delete after, let both through.)
   const { data: draft } = await supabase
     .from("draft_replies")
-    .select("body, order_status, order_summary")
+    .delete()
     .eq("lead_id", leadId)
+    .select("lead_id, business_id, body, order_status, order_summary")
     .maybeSingle();
   if (!draft)
     return {
@@ -612,10 +684,10 @@ export async function sendDraftReply(
 
   const edited = String(formData.get("body") ?? "").trim();
   const body = edited || draft.body;
-  if (!body) return { error: "The draft is empty. Type a reply first." };
-
-  const ctx = await loadContext(supabase, leadId);
-  if (typeof ctx === "string") return { error: ctx };
+  if (!body) {
+    await restoreDraft(draft);
+    return { error: "The draft is empty. Type a reply first." };
+  }
 
   // A paid order stays paid even if this draft was written before the owner marked it paid.
   const extra: Record<string, unknown> = {};
@@ -628,18 +700,8 @@ export async function sendDraftReply(
   }
 
   const result = await deliver(supabase, ctx, body, "bot", extra);
-  if (result.ok) {
-    const { error } = await supabase
-      .from("draft_replies")
-      .delete()
-      .eq("lead_id", leadId);
-    if (error)
-      console.error(
-        "Sent the draft but could not clear it",
-        leadId,
-        error.message,
-      );
-  }
+  // Not delivered: put it back (with the owner's edit) so nothing they wrote is lost.
+  if (!result.ok) await restoreDraft({ ...draft, body });
   return result;
 }
 

@@ -9,7 +9,7 @@ export interface SendResult {
 }
 
 /** The token actually used for a business: their own, or the deployment's shared one. */
-function resolveToken(businessToken?: string | null): string | undefined {
+export function resolveToken(businessToken?: string | null): string | undefined {
   return businessToken || process.env.WHATSAPP_ACCESS_TOKEN;
 }
 

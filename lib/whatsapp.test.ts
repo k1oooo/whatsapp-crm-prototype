@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { beforeEach, describe, expect, it } from "vitest";
-import { processPayload, verifySignature } from "@/lib/whatsapp";
+import { isConsentYes, isOptOut, processPayload, verifySignature } from "@/lib/whatsapp";
+import { CONSENT_ASK } from "@/lib/follow-up-settings";
 import { createFakeSupabase, type FakeDb } from "@/test/fake-supabase";
 import { inboundMediaPayload, inboundTextPayload } from "@/test/webhook-fixtures";
 
@@ -540,5 +541,97 @@ describe("processPayload: subscription gating", () => {
     expect(db._db.feedback).toHaveLength(0);
     expect(db._db.messages.filter((m) => m.source === "bot")).toHaveLength(0);
     expect(lead.human_reason).toBe("billing");
+  });
+});
+
+describe("isOptOut", () => {
+  it.each(["STOP", "stop", "Stop.", "berhenti", "henti", "unsubscribe", "stop please", "STOP semua mesej", "berhenti hantar"])(
+    "treats %j as an opt-out",
+    (text) => expect(isOptOut(text)).toBe(true),
+  );
+
+  it.each([
+    "batal order tadi",
+    "batal",
+    "stop at Shah Alam for delivery",
+    "stop by the shop at 5",
+    "please don't stop the delivery",
+    "nak berhenti sekejap kat Shah Alam",
+    "",
+    "ok",
+  ])("does not treat %j as an opt-out", (text) => expect(isOptOut(text)).toBe(false));
+});
+
+describe("isConsentYes", () => {
+  it.each(["YA", "ya", "Ya.", "yes", "setuju", " YA! "])("accepts %j", (t) => expect(isConsentYes(t)).toBe(true));
+  it.each(["ok", "okay", "boleh", "y", "ya ya betul", "ya tapi kurang sikit", "tak nak"])("rejects %j", (t) =>
+    expect(isConsentYes(t)).toBe(false),
+  );
+});
+
+describe("cancellations and consent in the chat flow", () => {
+  function consentLead(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "lead-1",
+      business_id: "biz-1",
+      wa_contact_number: CUSTOMER,
+      name: "Test Customer",
+      follow_up_consent: "unknown",
+      consent_asked_at: new Date().toISOString(),
+      awaiting_feedback: false,
+      pending_decision: false,
+      locked_fields: [],
+      stage: "won",
+      ...overrides,
+    };
+  }
+  const outboundOffer = (body: string) => ({
+    id: "m-out",
+    lead_id: "lead-1",
+    business_id: "biz-1",
+    wa_message_id: "wamid.out1",
+    direction: "out",
+    body,
+    source: "bot",
+    sent_at: new Date(Date.now() - 60_000).toISOString(),
+    created_at: new Date(Date.now() - 60_000).toISOString(),
+  });
+
+  it("does not switch off follow-ups when the customer cancels an order with 'batal'", async () => {
+    const db = createDb({ businesses: [makeBusiness({ auto_reply: false })] as FakeDb["businesses"] });
+    db._db.leads = [consentLead()];
+    await processPayload(db, inboundTextPayload({ phoneNumberId: PHONE_NUMBER_ID, from: CUSTOMER, body: "batal order tadi" }));
+
+    expect(db._db.leads[0].follow_up_consent).toBe("unknown");
+    // No "we won't message you again" reply was sent.
+    expect(db._db.messages.filter((m) => m.source === "bot")).toHaveLength(0);
+  });
+
+  it("records consent for YA sent straight after the offer", async () => {
+    const db = createDb({ businesses: [makeBusiness({ auto_reply: true })] as FakeDb["businesses"] });
+    db._db.leads = [consentLead()];
+    db._db.messages = [outboundOffer(`Payment dah terima!\n\n${CONSENT_ASK}`)];
+    await processPayload(db, inboundTextPayload({ phoneNumberId: PHONE_NUMBER_ID, from: CUSTOMER, body: "YA" }));
+
+    expect(db._db.leads[0].follow_up_consent).toBe("yes");
+  });
+
+  it("does not record consent for a bare 'ok' after the offer", async () => {
+    const db = createDb({ businesses: [makeBusiness({ auto_reply: true })] as FakeDb["businesses"] });
+    db._db.leads = [consentLead()];
+    db._db.messages = [outboundOffer(`Payment dah terima!\n\n${CONSENT_ASK}`)];
+    await processPayload(db, inboundTextPayload({ phoneNumberId: PHONE_NUMBER_ID, from: CUSTOMER, body: "ok" }));
+
+    expect(db._db.leads[0].follow_up_consent).toBe("unknown");
+  });
+
+  it("does not take a 'ya' that answers a later order summary as consent", async () => {
+    const db = createDb({ businesses: [makeBusiness({ auto_reply: true })] as FakeDb["businesses"] });
+    db._db.leads = [consentLead()];
+    // The offer was sent earlier, but the last thing we said was an order summary.
+    db._db.messages = [outboundOffer("Order summary: 12 cupcakes, esok 10am, atas nama Aina. Betul ke?")];
+    await processPayload(db, inboundTextPayload({ phoneNumberId: PHONE_NUMBER_ID, from: CUSTOMER, body: "ya" }));
+
+    expect(db._db.leads[0].follow_up_consent).toBe("unknown");
   });
 });

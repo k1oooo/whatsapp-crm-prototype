@@ -7,12 +7,14 @@
 //   .from(table).update(obj).eq(col, val)          (awaited directly, no terminal call)
 //   .from(table).select(cols).eq(col, val).order(col, opts).order(col, opts).limit(n)
 //   .from(table).select(cols).eq(col, val).gt(col, val).limit(n)
+//   .from(table).update(obj).eq(col, val).or("a.is.null,a.neq.x").select(cols).maybeSingle()   (claim pattern)
+//   .from(table).delete().eq(col, val).select(cols).maybeSingle()                              (claim pattern)
 //
 // It is intentionally not a general PostgREST simulator: unsupported shapes will
 // silently do the wrong thing rather than throw, so keep it close to what's above.
 
 type Row = Record<string, unknown>;
-type FilterOp = readonly ["eq" | "gt", string, unknown];
+type FilterOp = readonly ["eq" | "gt" | "neq" | "is" | "or", string, unknown];
 
 export interface FakeDb {
   [table: string]: Row[];
@@ -85,11 +87,25 @@ function pickCols(row: Row, cols: string | undefined): Row {
   return out;
 }
 
+/** One clause of a PostgREST .or() string, such as "order_status.is.null" or "order_status.neq.paid". */
+function matchesOrClause(row: Row, clause: string): boolean {
+  const [col, op, ...rest] = clause.split(".");
+  const val = rest.join(".");
+  const rv = row[col];
+  if (op === "is") return val === "null" ? rv == null : String(rv) === val;
+  if (op === "neq") return rv != null && String(rv) !== val; // SQL: NULL <> 'x' is not true
+  if (op === "eq") return rv != null && String(rv) === val;
+  return false;
+}
+
 function matchesFilters(row: Row, filters: FilterOp[]): boolean {
   return filters.every(([op, col, val]) => {
     const rv = row[col];
     if (op === "eq") return rv === val;
     if (op === "gt") return rv != null && String(rv) > String(val);
+    if (op === "neq") return rv != null && rv !== val;
+    if (op === "is") return val === null ? rv == null : rv === val;
+    if (op === "or") return String(val).split(",").some((c) => matchesOrClause(row, c.trim()));
     return true;
   });
 }
@@ -108,7 +124,7 @@ export function createFakeSupabase(seed: FakeDb = {}) {
   }
 
   function from(name: string) {
-    let mode: "select" | "insert" | "update" | null = null;
+    let mode: "select" | "insert" | "update" | "delete" | null = null;
     let payload: Row | undefined;
     let selectCols: string | undefined;
     const filters: FilterOp[] = [];
@@ -142,10 +158,19 @@ export function createFakeSupabase(seed: FakeDb = {}) {
         return kind === "list" ? { data: [out], error: null } : { data: out, error: null };
       }
 
-      if (mode === "update") {
+      if (mode === "update" || mode === "delete") {
         const matched = rows.filter((r) => matchesFilters(r, filters));
-        for (const r of matched) Object.assign(r, payload, { updated_at: new Date().toISOString() });
-        return { data: matched.map((r) => pickCols(r, selectCols)), error: null };
+        if (mode === "update") {
+          for (const r of matched) Object.assign(r, payload, { updated_at: new Date().toISOString() });
+        } else {
+          for (const r of matched) rows.splice(rows.indexOf(r), 1);
+        }
+        const out = matched.map((r) => pickCols(r, selectCols));
+        if (kind === "single") {
+          return out.length === 1 ? { data: out[0], error: null } : { data: null, error: { code: "PGRST116", message: "no rows found" } };
+        }
+        if (kind === "maybeSingle") return { data: out[0] ?? null, error: null };
+        return { data: out, error: null };
       }
 
       // select
@@ -173,7 +198,7 @@ export function createFakeSupabase(seed: FakeDb = {}) {
 
     const builder = {
       select(cols?: string) {
-        if (!mode) mode = "select";
+        if (!mode) mode = "select"; // after update()/delete() this only sets which columns come back
         selectCols = cols;
         return builder;
       },
@@ -201,6 +226,22 @@ export function createFakeSupabase(seed: FakeDb = {}) {
       update(obj: Row) {
         mode = "update";
         payload = obj;
+        return builder;
+      },
+      delete() {
+        mode = "delete";
+        return builder;
+      },
+      neq(col: string, val: unknown) {
+        filters.push(["neq", col, val] as const);
+        return builder;
+      },
+      is(col: string, val: unknown) {
+        filters.push(["is", col, val] as const);
+        return builder;
+      },
+      or(expr: string) {
+        filters.push(["or", "", expr] as const);
         return builder;
       },
       eq(col: string, val: unknown) {

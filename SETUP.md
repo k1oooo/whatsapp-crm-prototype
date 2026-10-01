@@ -58,6 +58,16 @@ There are two ways to hold the credentials (verify token, app secret, access tok
 
 A business can mix and match (e.g. its own access token but the shared verify token). Whichever the webhook payload's phone number ID resolves to is what gets used, checked before the shared default.
 
+**How incoming messages are verified.** Every phone number ID in a webhook delivery must verify against that business's own app secret (or the shared secret, for a business with no credentials of its own). A business that saves its own access token or verify token must also save its own app secret; Settings refuses the half-set-up state, and the webhook rejects it, because nothing could then prove a message came from Meta.
+
+**How a number is claimed.** In live mode (`WHATSAPP_SEND_MODE=live`), saving a phone number ID makes a Graph API call with that business's access token (or the shared one) and only saves the number if WhatsApp confirms the token can see it. In test mode this check is skipped, so the simulator keeps working with IDs like `TEST_PHONE_NUMBER_ID`. One limit remains: on the shared token, any number under the shared WhatsApp Business Account passes the check, so first come first served applies to numbers on that account.
+
+**Opt-out and consent.** Only a message that is just `STOP`, `unsubscribe`, `berhenti` or `henti` (plus a filler word such as "please") switches follow-ups off. `batal` means "cancel" in Malay, so it goes to the order assistant instead. Marketing consent needs an explicit `YA`, `YES` or `SETUJU` sent straight after the follow-up offer.
+
+## Checks
+
+`pnpm run lint`, `pnpm exec tsc --noEmit`, `pnpm test` and `pnpm audit --prod --audit-level high` run on every push and pull request (`.github/workflows/ci.yml`). The project uses pnpm; `pnpm-lock.yaml` is the only lockfile, so do not commit a `package-lock.json`.
+
 ## 9. Billing (Stripe)
 Every business, new or existing, gets a 14 day free trial with no card needed. When the trial ends (or a payment fails, or the subscription is cancelled) the assistant stops: it does not reply, draft, extract lead details, or send follow-ups, and each new chat is flagged "subscription needs attention". Customer messages still arrive and the owner can answer by hand. STOP is always honoured.
 
