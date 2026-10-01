@@ -42,11 +42,15 @@ function DocCard({ doc }: { doc: DocSummary }) {
 
   return (
     <Card className="flex items-start gap-3 p-4">
-      <FileText className="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden />
+      <FileText
+        className="mt-0.5 size-5 shrink-0 text-muted-foreground"
+        aria-hidden
+      />
       <div className="min-w-0 flex-1">
         <p className="truncate font-semibold">{doc.file_name}</p>
         <p className="text-sm text-muted-foreground">
-          {doc.page_count} {doc.page_count === 1 ? "page" : "pages"} · {prettySize(doc.size_bytes)}
+          {doc.page_count} {doc.page_count === 1 ? "page" : "pages"} ·{" "}
+          {prettySize(doc.size_bytes)}
         </p>
         {doc.truncated && (
           <p className="mt-1 text-sm text-warning-foreground">
@@ -62,7 +66,11 @@ function DocCard({ doc }: { doc: DocSummary }) {
         onClick={() => setConfirming(true)}
         disabled={pending}
       >
-        {pending ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" aria-hidden />}
+        {pending ? (
+          <Loader2 className="size-4 animate-spin" />
+        ) : (
+          <Trash2 className="size-4" aria-hidden />
+        )}
       </Button>
       <ConfirmDialog
         open={confirming}
@@ -90,8 +98,10 @@ export function DocumentsPanel({ documents }: { documents: DocSummary[] }) {
     const file = data.get("file");
 
     // Catch the obvious problems here, so a big file isn't sent just to be turned away.
-    if (!(file instanceof File) || file.size === 0) return toast.error("Choose a PDF first.");
-    if (file.size > MAX_PDF_BYTES) return toast.error("That PDF is too big. The limit is 4MB.");
+    if (!(file instanceof File) || file.size === 0)
+      return toast.error("Choose a PDF first.");
+    if (file.size > MAX_PDF_BYTES)
+      return toast.error("That PDF is too big. The limit is 4MB.");
 
     start(async () => {
       const res = await uploadKnowledgeDocument({}, data);
@@ -109,15 +119,15 @@ export function DocumentsPanel({ documents }: { documents: DocSummary[] }) {
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <p className="max-w-md text-muted-foreground">
-          Upload a PDF of your business data, like a price list or a menu. The assistant reads its
-          text and answers customers from it.
+          Upload a PDF of your business data, like a price list or a menu. The
+          assistant reads its text and answers customers from it.
         </p>
         <FactsPreview />
       </div>
 
       <form
         onSubmit={submit}
-        className="flex flex-col items-start gap-3 rounded-xl border border-dashed p-5 sm:flex-row sm:items-center"
+        className="flex flex-col gap-3 rounded-xl border border-dashed p-4 sm:flex-row sm:items-center sm:p-5"
       >
         <input
           ref={inputRef}
@@ -134,17 +144,22 @@ export function DocumentsPanel({ documents }: { documents: DocSummary[] }) {
           variant="outline"
           disabled={full || pending}
           onClick={() => inputRef.current?.click()}
-          className="shrink-0"
+          className="w-full shrink-0 sm:w-auto"
         >
           <Upload />
           Choose PDF
         </Button>
-        <p className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+        <p className="min-w-0 text-sm break-words text-muted-foreground sm:flex-1 sm:truncate">
           {full
             ? `You have ${MAX_DOCS} PDFs, the most allowed. Delete one to add another.`
-            : (fileName ?? "PDF only, up to 4MB. It must contain text, not a photo or scan.")}
+            : (fileName ??
+              "PDF only, up to 4MB. It must contain text, not a photo or scan.")}
         </p>
-        <Button type="submit" disabled={full || pending || !fileName} className="shrink-0">
+        <Button
+          type="submit"
+          disabled={full || pending || !fileName}
+          className="w-full shrink-0 sm:w-auto"
+        >
           {pending && <Loader2 className="animate-spin" />}
           Upload
         </Button>
@@ -152,7 +167,8 @@ export function DocumentsPanel({ documents }: { documents: DocSummary[] }) {
 
       {documents.length === 0 ? (
         <EmptyState icon={FileText} title="No PDFs yet">
-          Anything you upload here is added to what the assistant knows, next to the entries you type in.
+          Anything you upload here is added to what the assistant knows, next to
+          the entries you type in.
         </EmptyState>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
