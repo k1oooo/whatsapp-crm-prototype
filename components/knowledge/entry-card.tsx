@@ -27,7 +27,14 @@ export function EntryCard({ entry }: { entry: KbEntry }) {
   return (
     <Card className="flex flex-col gap-2 p-4">
       <div className="flex items-start justify-between gap-3">
-        <p className="font-semibold">{isFaq ? `Q: ${entry.title}` : entry.title}</p>
+        <p className="font-semibold">
+          {isFaq ? `Q: ${entry.title}` : entry.title}
+          {entry.price_myr != null && (
+            <span className="ml-2 rounded-md bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
+              RM{Number(entry.price_myr)}
+            </span>
+          )}
+        </p>
         <div className="flex shrink-0 items-center">
           <EntryFormSheet
             category={entry.category}

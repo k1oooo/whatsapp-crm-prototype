@@ -30,11 +30,15 @@ export default async function KnowledgePage({
   }>(supabase, user, "id, business_facts");
   if (!business) redirect("/dashboard");
 
-  const { data: rows } = await supabase
-    .from("knowledge_entries")
-    .select("id, category, title, content")
-    .eq("business_id", business.id)
-    .order("created_at", { ascending: true });
+  // price_myr exists from migration 0015. Before it, load the entries without prices.
+  const readEntries = (cols: string) =>
+    supabase
+      .from("knowledge_entries")
+      .select(cols)
+      .eq("business_id", business.id)
+      .order("created_at", { ascending: true });
+  const withPrices = await readEntries("id, category, title, content, price_myr");
+  const rows = withPrices.error ? (await readEntries("id, category, title, content")).data : withPrices.data;
 
   // Only the list details, not the extracted text, which can be long. Empty if migration 0013
   // hasn't been applied yet, so the page still works.
@@ -51,7 +55,7 @@ export default async function KnowledgePage({
         description="Everything the assistant is allowed to tell customers: menu, prices, location, hours and common questions. Anything not here, it hands to you instead of guessing."
       />
       <KnowledgeView
-        entries={(rows ?? []) as KbEntry[]}
+        entries={(rows ?? []) as unknown as KbEntry[]}
         otherNotes={business.business_facts ?? ""}
         documents={(docRows ?? []) as DocSummary[]}
         prefill={prefill}

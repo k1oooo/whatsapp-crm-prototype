@@ -84,3 +84,75 @@ describe("mergeLead", () => {
     expect(mergeLead(existing, next).stage).toBe("lost");
   });
 });
+
+import { agentOutputSchema, extractJson } from "@/lib/ai";
+
+describe("extractJson", () => {
+  it("reads a plain object", () => {
+    expect(extractJson('{"a":1}')).toEqual({ a: 1 });
+  });
+  it("reads an object wrapped in prose and code fences", () => {
+    expect(extractJson('Sure!\n```json\n{"a":1,"b":{"c":2}}\n```\nHope that helps')).toEqual({ a: 1, b: { c: 2 } });
+  });
+  it("REGRESSION: ignores a stray closing brace after the object", () => {
+    expect(extractJson('{"a":1} (note: keys look like {this})')).toEqual({ a: 1 });
+  });
+  it("is not fooled by braces inside strings", () => {
+    expect(extractJson('{"reply":"use {TOTAL} and } here","n":2}')).toEqual({ reply: "use {TOTAL} and } here", n: 2 });
+  });
+  it("handles escaped quotes inside strings", () => {
+    expect(extractJson('{"reply":"he said \\"hi\\" }"}')).toEqual({ reply: 'he said "hi" }' });
+  });
+  it("throws when there is no object or it never closes", () => {
+    expect(() => extractJson("no json here")).toThrow();
+    expect(() => extractJson('{"a":1')).toThrow();
+  });
+});
+
+describe("agentOutputSchema", () => {
+  it("accepts a well formed reply with order lines", () => {
+    const r = agentOutputSchema.parse({
+      action: "reply",
+      reason: null,
+      reply: "Total {TOTAL} ya",
+      note: null,
+      order: { status: "awaiting_confirmation", summary: "12 cupcakes", lines: [{ item: "P1", qty: "12" }] },
+      lead: { name: "Aina" },
+    });
+    expect(r.order.lines).toEqual([{ item: "P1", qty: 12 }]);
+    expect(r.order.status).toBe("awaiting_confirmation");
+  });
+
+  it("hands over when the action is not one it knows", () => {
+    expect(agentOutputSchema.parse({ action: "send_money" }).action).toBe("escalate");
+  });
+
+  it("drops ALL order lines if any one is invalid", () => {
+    const r = agentOutputSchema.parse({
+      action: "reply",
+      order: { status: "awaiting_confirmation", lines: [{ item: "P1", qty: 2 }, { item: "P2", qty: -5 }] },
+    });
+    expect(r.order.lines).toEqual([]);
+  });
+
+  it.each([0, 1.5, 100000, "lots"])("rejects quantity %s", (qty) => {
+    expect(agentOutputSchema.parse({ order: { lines: [{ item: "P1", qty }] } }).order.lines).toEqual([]);
+  });
+
+  it("falls back to no order when the order is the wrong type", () => {
+    const r = agentOutputSchema.parse({ action: "reply", order: "confirmed" });
+    expect(r.order).toEqual({ status: "none", summary: null, lines: [] });
+  });
+
+  it("caps the reply and summary length and ignores non-string text", () => {
+    const r = agentOutputSchema.parse({ reply: "x".repeat(5000), order: { summary: "y".repeat(5000) }, note: 42 });
+    expect(r.reply).toHaveLength(1000);
+    expect(r.order.summary).toHaveLength(500);
+    expect(r.note).toBeNull();
+  });
+
+  it("refuses more order lines than an order can have", () => {
+    const lines = Array.from({ length: 21 }, () => ({ item: "P1", qty: 1 }));
+    expect(agentOutputSchema.parse({ order: { lines } }).order.lines).toEqual([]);
+  });
+});

@@ -210,3 +210,33 @@ describe("saveWhatsAppConnection", () => {
     expect(db._db.businesses[0].wa_phone_number_id).toBe("TEST_PHONE_NUMBER_ID");
   });
 });
+
+describe("credentials at rest", () => {
+  it("stores the access token and app secret encrypted, and the verify token as typed", async () => {
+    process.env.WA_SECRETS_KEY = Buffer.alloc(32, 5).toString("base64");
+    try {
+      const res = await saveWhatsAppConnection(
+        noState,
+        form({ wa_phone_number_id: "TEST_PHONE_NUMBER_ID", wa_app_secret: "my-secret", wa_access_token: "my-token", wa_verify_token: "verify-me" }),
+      );
+      expect(res.error).toBeUndefined();
+      const row = db._db.businesses[0];
+      expect(String(row.wa_access_token)).toMatch(/^enc:v1:/);
+      expect(String(row.wa_app_secret)).toMatch(/^enc:v1:/);
+      expect(JSON.stringify(row)).not.toContain("my-token");
+      expect(JSON.stringify(row)).not.toContain("my-secret");
+      expect(row.wa_verify_token).toBe("verify-me");
+    } finally {
+      delete process.env.WA_SECRETS_KEY;
+    }
+  });
+
+  it("refuses to save credentials in production when the server has no key", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await saveWhatsAppConnection(noState, form({ wa_phone_number_id: "TEST_PHONE_NUMBER_ID", wa_app_secret: "s", wa_access_token: "t" }));
+    expect(res.error).toMatch(/WA_SECRETS_KEY/);
+    expect(db._db.businesses[0].wa_access_token).toBeNull();
+    vi.unstubAllEnvs();
+  });
+});

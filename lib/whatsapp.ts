@@ -15,7 +15,16 @@ import {
   type LeadFields,
 } from "@/lib/ai";
 import { CONSENT_ASK, readSettings } from "@/lib/follow-up-settings";
-import { getBusinessFacts } from "@/lib/knowledge";
+import { drainInboundJobs, enqueueInbound, type InboundJob } from "@/lib/inbound-queue";
+import { getBusinessKnowledge } from "@/lib/knowledge";
+import {
+  computeOrder,
+  computedAmounts,
+  fillTotal,
+  hasUnverifiedAmount,
+  parseStoredLines,
+  type OrderLine,
+} from "@/lib/order";
 import { sendWhatsAppText } from "@/lib/send";
 import { isSubscriptionActive, subscriptionBlockedNote, type SubscriptionInfo } from "@/lib/subscriptions";
 
@@ -122,7 +131,7 @@ function bodyOf(m: { type: string; text?: WaText }): string {
   return m.type === "text" && m.text?.body ? m.text.body : `[${m.type}]`;
 }
 
-/** Store one message, creating or updating the lead. Returns the lead id, or null for a duplicate. */
+/** Store one message, creating or updating the lead. `duplicate` is true when Meta delivered it before. */
 async function recordMessage(
   db: SupabaseClient,
   args: {
@@ -135,7 +144,7 @@ async function recordMessage(
     sentAt: Date;
     source: "customer" | "owner";
   },
-): Promise<string | null> {
+): Promise<{ leadId: string; duplicate: boolean }> {
   const { businessId, contactNumber, contactName, direction, waMessageId, body, sentAt, source } = args;
   const sentIso = sentAt.toISOString();
 
@@ -189,7 +198,7 @@ async function recordMessage(
     source,
   });
   if (msgError) {
-    if (msgError.code === "23505") return null;
+    if (msgError.code === "23505") return { leadId, duplicate: true };
     throw msgError;
   }
 
@@ -219,7 +228,7 @@ async function recordMessage(
   }
 
   await db.from("leads").update(update).eq("id", leadId);
-  return leadId;
+  return { leadId, duplicate: false };
 }
 
 /** Merge new lead fields into the existing ones, never overwriting fields the owner corrected by hand. */
@@ -353,7 +362,25 @@ async function autoReply(db: SupabaseClient, business: BusinessInfo, leadId: str
   const isMedia = /^\[[a-z_]+\]$/.test(body);
 
   // Read the knowledge base once. It is the only source of truth the assistant may quote from.
-  const facts = isMedia ? "" : await getBusinessFacts(db, business.id);
+  const knowledge = isMedia ? { facts: "", catalog: [] } : await getBusinessKnowledge(db, business.id);
+  const facts = knowledge.facts;
+  const catalog = knowledge.catalog;
+  const priced = catalog.length > 0;
+
+  // The order lines and total saved so far. Read apart from the status above, so a database that has
+  // not had migration 0015 yet keeps working (with no priced orders).
+  let storedLines: OrderLine[] = [];
+  let storedTotal: number | null = null;
+  if (priced) {
+    const pending =
+      business.reply_mode === "approve"
+        ? await db.from("draft_replies").select("order_lines, order_total_myr").eq("lead_id", leadId).maybeSingle()
+        : null;
+    const fromLead = await db.from("leads").select("order_lines, order_total_myr").eq("id", leadId).maybeSingle();
+    const src = pending?.data?.order_lines ? pending.data : fromLead.data;
+    storedLines = parseStoredLines(src?.order_lines);
+    storedTotal = storedLines.length && src?.order_total_myr != null ? Number(src.order_total_myr) : null;
+  }
 
   let result: AgentResult;
   if (isMedia) {
@@ -379,6 +406,7 @@ async function autoReply(db: SupabaseClient, business: BusinessInfo, leadId: str
           summary: effectiveOrderSummary,
         },
         messages,
+        catalog,
       });
     } catch (err) {
       // Better to stay silent and tell the owner than to send a broken message.
@@ -388,8 +416,56 @@ async function autoReply(db: SupabaseClient, business: BusinessInfo, leadId: str
     }
   }
 
+  // Order lines and total. When the business has priced menu items the SERVER prices the order from
+  // the AI's item codes and quantities. The AI never adds prices, so a wrong total can not reach the
+  // customer or the revenue figures.
+  const handBack = (note: string) => {
+    result = {
+      ...result,
+      action: "escalate",
+      reason: "unsure",
+      reply: HOLDING_FALLBACK,
+      order: { status: "none", summary: null },
+      note,
+    };
+  };
+  let orderLines: OrderLine[] | null = null;
+  let orderTotal: number | null = null;
+  if (result.action === "reply" && priced) {
+    const sent = result.order.lines ?? [];
+    const needsTotal = result.order.status === "awaiting_confirmation" || result.order.status === "confirmed";
+    if (sent.length > 0) {
+      const computed = computeOrder(sent, catalog);
+      if (computed.ok) {
+        orderLines = computed.lines;
+        orderTotal = computed.totalMyr;
+      } else {
+        console.warn("Could not price the AI's order lines", leadId, computed.error);
+        handBack("The assistant could not work out this order's total from your menu. Please check the chat.");
+      }
+    } else if (storedLines.length > 0 && storedTotal != null) {
+      // A thank-you after confirming, or a customer saying "ok": the order has not changed.
+      orderLines = storedLines;
+      orderTotal = storedTotal;
+    } else if (needsTotal) {
+      handBack("The assistant summarised an order but could not work out its total from your menu. Please check the chat.");
+    }
+  }
+  if (result.action === "reply") {
+    const filled = fillTotal(result.reply, orderTotal);
+    if (!filled.ok) handBack("The assistant's reply needed an order total it did not have. Please check the chat.");
+    else {
+      result = { ...result, reply: filled.reply };
+      if (result.order.summary) result.order = { ...result.order, summary: fillTotal(result.order.summary, orderTotal).reply };
+    }
+  }
+
   // Safety net: no invented prices, and no empty replies.
-  const allowed = `${facts}\n${messages.map((m) => m.body).join("\n")}`;
+  const chatText = messages.map((m) => m.body).join("\n");
+  const unverifiedPrice = (reply: string) =>
+    priced
+      ? hasUnverifiedAmount(reply, facts, chatText, orderLines ? computedAmounts(orderLines, orderTotal) : [])
+      : usesUnknownAmount(reply, `${facts}\n${chatText}`);
   if (result.action === "reply" && hasPlaceholder(result.reply)) {
     result = {
       ...result,
@@ -399,7 +475,7 @@ async function autoReply(db: SupabaseClient, business: BusinessInfo, leadId: str
       order: { status: "none", summary: null },
       note: "Your Settings still have a placeholder like [BANK NAME]. Please finish them, then answer this customer.",
     };
-  } else if (result.action === "reply" && (!result.reply || usesUnknownAmount(result.reply, allowed))) {
+  } else if (result.action === "reply" && (!result.reply || unverifiedPrice(result.reply))) {
     result = {
       ...result,
       action: "escalate",
@@ -408,6 +484,10 @@ async function autoReply(db: SupabaseClient, business: BusinessInfo, leadId: str
       order: { status: "none", summary: null },
       note: "The assistant's reply had a price it could not verify. Please check the chat.",
     };
+  }
+  if (result.action !== "reply") {
+    orderLines = null;
+    orderTotal = null;
   }
   if (!result.reply) result.reply = HOLDING_FALLBACK;
 
@@ -484,7 +564,12 @@ async function autoReply(db: SupabaseClient, business: BusinessInfo, leadId: str
   // Once the assistant has answered, the lead is no longer "new". This is CRM data (name, need,
   // budget, stage, ...), not anything the customer sees, so it is safe to save immediately in
   // both reply modes — only the actual outbound message and the order status wait for approval.
-  const next = { ...result.lead, stage: result.lead.stage === "new" ? ("talking" as const) : result.lead.stage };
+  const next = {
+    ...result.lead,
+    // The quoted price is the computed total (rounded: this column is whole RM), not whatever the AI wrote.
+    quoted_price_myr: orderTotal != null ? Math.round(orderTotal) : result.lead.quoted_price_myr,
+    stage: result.lead.stage === "new" ? ("talking" as const) : result.lead.stage,
+  };
   const merged = mergeWithLocks(lead, next);
   const { error: leadFieldsError } = await db
     .from("leads")
@@ -503,6 +588,7 @@ async function autoReply(db: SupabaseClient, business: BusinessInfo, leadId: str
         body: result.reply,
         order_status: result.order.status === "none" ? null : result.order.status,
         order_summary: result.order.summary ?? effectiveOrderSummary,
+        ...(orderLines ? { order_lines: orderLines, order_total_myr: orderTotal } : {}),
       },
       { onConflict: "lead_id" },
     );
@@ -558,6 +644,15 @@ async function autoReply(db: SupabaseClient, business: BusinessInfo, leadId: str
       })
       .eq("id", leadId);
     if (orderError) console.error("Could not save the order (is migration 0006 applied?)", orderError.message);
+
+    // The priced lines and total, apart from the status above so a missing 0015 does not lose the status.
+    if (orderLines) {
+      const { error: linesError } = await db
+        .from("leads")
+        .update({ order_lines: orderLines, order_total_myr: orderTotal })
+        .eq("id", leadId);
+      if (linesError) console.error("Could not save the order total (is migration 0015 applied?)", linesError.message);
+    }
   }
 
   return true;
@@ -742,44 +837,57 @@ async function handleLead(db: SupabaseClient, business: BusinessInfo, leadId: st
   const canAutoReply = business.auto_reply && !!lead && !lead.pending_decision && !paused;
 
   if (canAutoReply && (await autoReply(db, business, leadId))) return;
-  await refreshLead(db, leadId);
+
+  // Reading the chat into CRM fields is best effort. If the AI is down, a retry of the whole job would
+  // not help the customer, so log it and move on (the next message tries again).
+  try {
+    await refreshLead(db, leadId);
+  } catch (err) {
+    console.error("Could not update the lead details", leadId, err);
+  }
 }
 
-/** Process a verified webhook payload. */
-export async function processPayload(db: SupabaseClient, payload: WaWebhookPayload): Promise<void> {
-  const touched = new Map<string, BusinessInfo>();
+/** True when this inbound message is still the newest in the chat, so nobody has answered it. */
+async function stillUnanswered(db: SupabaseClient, leadId: string, waMessageId: string): Promise<boolean> {
+  const { data } = await db
+    .from("messages")
+    .select("wa_message_id, direction")
+    .eq("lead_id", leadId)
+    .order("created_at", { ascending: false })
+    .order("sent_at", { ascending: false })
+    .limit(1);
+  const newest = data?.[0];
+  return !!newest && newest.direction === "in" && newest.wa_message_id === waMessageId;
+}
 
+/**
+ * The webhook's job: store every message in a verified payload and queue work for the chats it
+ * touched. Nothing slow happens here (no AI, no sending), so it finishes well inside Meta's timeout.
+ * If it throws, the route answers 500 and Meta redelivers: messages are deduplicated, and a
+ * redelivered message that nobody has answered yet is queued again.
+ */
+export async function ingestPayload(db: SupabaseClient, payload: WaWebhookPayload): Promise<void> {
   for (const entry of payload.entry ?? []) {
     for (const change of entry.changes ?? []) {
       const value = change.value;
       const phoneNumberId = value.metadata?.phone_number_id;
       if (!phoneNumberId) continue;
 
-      const { data: business } = await db
+      const { data: business, error } = await db
         .from("businesses")
-        .select("id, wa_phone_number_id, auto_reply, reply_mode, business_facts, tone_notes, wa_access_token")
+        .select("id")
         .eq("wa_phone_number_id", phoneNumberId)
         .maybeSingle();
+      if (error) throw error;
       if (!business) {
         console.warn(`No business registered for phone_number_id ${phoneNumberId}`);
         continue;
       }
 
-      // One extra query per unique business per webhook delivery (not per message), so gating
-      // doesn't add real cost. Missing row (pre-migration-0012 data, or the trial insert having
-      // failed) is treated as "no active subscription", not as "let it through" — access needs
-      // an explicit active/trialing row, not the absence of one.
-      const { data: subscription } = await db
-        .from("subscriptions")
-        .select("status, trial_ends_at, current_period_end")
-        .eq("business_id", business.id)
-        .maybeSingle();
-      const businessWithSub = { ...business, subscription } as BusinessInfo;
-
       if (change.field === "messages") {
         for (const m of value.messages ?? []) {
           const name = value.contacts?.find((c) => c.wa_id === m.from)?.profile?.name;
-          const leadId = await recordMessage(db, {
+          const { leadId, duplicate } = await recordMessage(db, {
             businessId: business.id,
             contactNumber: m.from,
             contactName: name,
@@ -789,13 +897,15 @@ export async function processPayload(db: SupabaseClient, payload: WaWebhookPaylo
             sentAt: new Date(Number(m.timestamp) * 1000),
             source: "customer",
           });
-          if (leadId) touched.set(leadId, businessWithSub);
+          if (!duplicate || (await stillUnanswered(db, leadId, m.id))) {
+            await enqueueInbound(db, business.id, leadId);
+          }
         }
       }
 
       if (change.field === "smb_message_echoes") {
         for (const e of value.message_echoes ?? []) {
-          const leadId = await recordMessage(db, {
+          const { leadId, duplicate } = await recordMessage(db, {
             businessId: business.id,
             contactNumber: e.to,
             direction: "out",
@@ -804,17 +914,39 @@ export async function processPayload(db: SupabaseClient, payload: WaWebhookPaylo
             sentAt: new Date(Number(e.timestamp) * 1000),
             source: "owner",
           });
-          if (leadId) touched.set(leadId, businessWithSub);
+          if (!duplicate) await enqueueInbound(db, business.id, leadId);
         }
       }
     }
   }
+}
 
-  for (const [leadId, business] of touched) {
-    try {
-      await handleLead(db, business, leadId);
-    } catch (err) {
-      console.error("Lead handling failed", leadId, err);
-    }
-  }
+/** The worker's job: act on one chat. Throws when it should be retried. */
+export async function handleInboundJob(db: SupabaseClient, job: Pick<InboundJob, "business_id" | "lead_id">): Promise<void> {
+  const { data: business, error } = await db
+    .from("businesses")
+    .select("id, wa_phone_number_id, auto_reply, reply_mode, business_facts, tone_notes, wa_access_token")
+    .eq("id", job.business_id)
+    .maybeSingle();
+  if (error) throw error;
+  if (!business) return; // the business was deleted: nothing left to do
+
+  // Missing row (pre-migration-0012 data, or the trial insert having failed) is treated as "no active
+  // subscription", not as "let it through": access needs an explicit active/trialing row.
+  const { data: subscription } = await db
+    .from("subscriptions")
+    .select("status, trial_ends_at, current_period_end")
+    .eq("business_id", business.id)
+    .maybeSingle();
+
+  await handleLead(db, { ...business, subscription } as BusinessInfo, job.lead_id);
+}
+
+/**
+ * Store a payload and work through the queue right away. Production splits these (the webhook
+ * ingests, then a background worker drains the queue); this keeps the simulator and tests simple.
+ */
+export async function processPayload(db: SupabaseClient, payload: WaWebhookPayload): Promise<void> {
+  await ingestPayload(db, payload);
+  await drainInboundJobs(db, (job) => handleInboundJob(db, job), { limit: 20, budgetMs: 120_000 });
 }

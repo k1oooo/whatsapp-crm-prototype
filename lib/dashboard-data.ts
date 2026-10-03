@@ -1,6 +1,18 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { REASON_LABEL, rm, STAGES, STAGE_LABEL, type Stage } from "@/lib/leads";
 
+/** What an order is worth: the computed total if there is one, else the price on the lead. */
+export function orderValue(l: { order_total_myr?: number | string | null; quoted_price_myr: number | null }): number {
+  if (l.order_total_myr != null) {
+    const n = Number(l.order_total_myr);
+    if (Number.isFinite(n)) return n;
+  }
+  return l.quoted_price_myr ?? 0;
+}
+
+const DASHBOARD_LEAD_COLUMNS =
+  "id, name, wa_contact_number, stage, order_status, quoted_price_myr, pending_decision, human_reason, last_inbound_at, paid_at, created_at";
+
 const DAY_MS = 86_400_000;
 const WEEK_MS = 7 * DAY_MS;
 
@@ -60,6 +72,8 @@ interface LeadRow {
   stage: Stage;
   order_status: string | null;
   quoted_price_myr: number | null;
+  /** The exact total the server computed from the menu (0015). Revenue uses this when it is there. */
+  order_total_myr?: number | string | null;
   pending_decision: boolean;
   human_reason: string | null;
   last_inbound_at: string | null;
@@ -117,11 +131,11 @@ export async function getDashboardData(supabase: SupabaseClient): Promise<Dashbo
   const startOfTomorrow = new Date(startOfToday.getTime() + DAY_MS);
 
   const [leadsRes, messagesRes, followUpsRes, feedbackRes] = await Promise.all([
+    // order_total_myr exists from migration 0015. Before it, fall back to the older column set.
     supabase
       .from("leads")
-      .select(
-        "id, name, wa_contact_number, stage, order_status, quoted_price_myr, pending_decision, human_reason, last_inbound_at, paid_at, created_at",
-      ),
+      .select(`${DASHBOARD_LEAD_COLUMNS}, order_total_myr`)
+      .then((res) => (res.error ? supabase.from("leads").select(DASHBOARD_LEAD_COLUMNS) : res)),
     // Capped at 1000 rows / 14 days: enough for reply-time and volume stats on a small business
     // without scanning the whole message history on every dashboard load.
     supabase
@@ -173,8 +187,8 @@ export async function getDashboardData(supabase: SupabaseClient): Promise<Dashbo
   const paidLastWeek = leads.filter(
     (l) => l.order_status === "paid" && l.paid_at && l.paid_at >= twoWeeksAgo && l.paid_at < weekAgo,
   );
-  const revenueThisWeek = paidThisWeek.reduce((sum, l) => sum + (l.quoted_price_myr ?? 0), 0);
-  const revenueLastWeek = paidLastWeek.reduce((sum, l) => sum + (l.quoted_price_myr ?? 0), 0);
+  const revenueThisWeek = paidThisWeek.reduce((sum, l) => sum + orderValue(l), 0);
+  const revenueLastWeek = paidLastWeek.reduce((sum, l) => sum + orderValue(l), 0);
 
   const createdThisWeek = leads.filter((l) => l.created_at >= weekAgo);
   const createdLastWeek = leads.filter(
@@ -188,9 +202,9 @@ export async function getDashboardData(supabase: SupabaseClient): Promise<Dashbo
     : null;
 
   const topOrdersThisWeek = [...paidThisWeek]
-    .sort((a, b) => (b.quoted_price_myr ?? 0) - (a.quoted_price_myr ?? 0))
+    .sort((a, b) => orderValue(b) - orderValue(a))
     .slice(0, 3)
-    .map((l) => ({ name: nameFor(l), amount: l.quoted_price_myr ?? 0 }));
+    .map((l) => ({ name: nameFor(l), amount: orderValue(l) }));
   const avgOrderValueThisWeek = paidThisWeek.length ? revenueThisWeek / paidThisWeek.length : null;
 
   // First-reply time: for each lead, the gap between its first customer message and the next

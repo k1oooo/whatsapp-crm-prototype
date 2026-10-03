@@ -17,7 +17,13 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
-import { KB_CATEGORY_HINT, type KbCategory, type KbEntry } from "@/lib/knowledge";
+import {
+  KB_CATEGORY_HINT,
+  MAX_ENTRY_CONTENT,
+  MAX_ENTRY_TITLE,
+  type KbCategory,
+  type KbEntry,
+} from "@/lib/knowledge";
 
 // Add and edit share one form: FAQ labels its fields as a question and answer, everything else as
 // a name and details.
@@ -79,6 +85,7 @@ export function EntryFormSheet({
                 id="title"
                 name="title"
                 required
+                maxLength={MAX_ENTRY_TITLE}
                 defaultValue={entry?.title ?? prefill?.title}
                 placeholder={isFaq ? "Do you deliver on weekends?" : "Cupcakes"}
               />
@@ -89,11 +96,30 @@ export function EntryFormSheet({
                 id="content"
                 name="content"
                 required
+                maxLength={MAX_ENTRY_CONTENT}
                 rows={6}
                 defaultValue={entry?.content ?? prefill?.content}
                 placeholder={isFaq ? "Yes, Saturday only, 10am to 4pm." : "RM3 each. Minimum order 12."}
               />
             </div>
+            {!isFaq && (
+              <div className="grid gap-1.5">
+                <Label htmlFor="price">Price (RM), optional</Label>
+                <Input
+                  id="price"
+                  name="price"
+                  inputMode="decimal"
+                  defaultValue={entry?.price_myr ?? ""}
+                  placeholder="3.50"
+                  className="max-w-40"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Give each thing you sell a fixed price here. The assistant then works out order totals from
+                  these prices, so the total is always right. Leave it empty for anything that is not sold by
+                  the piece.
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="mt-auto flex flex-col-reverse gap-2 border-t p-4 sm:flex-row sm:items-center sm:justify-end sm:gap-3">

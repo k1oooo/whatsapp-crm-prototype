@@ -10,10 +10,16 @@ import {
   KB_CATEGORIES,
   MAX_DOC_CHARS,
   MAX_DOCS,
+  MAX_ENTRIES,
+  MAX_ENTRY_CONTENT,
+  MAX_ENTRY_TITLE,
+  MAX_NOTES_CHARS,
   MAX_PDF_BYTES,
+  MAX_PRICE_MYR,
   type KbCategory,
   type KbEntry,
 } from "@/lib/knowledge";
+import { parsePrice } from "@/lib/order";
 import { createClient } from "@/lib/supabase/server";
 
 type Db = Awaited<ReturnType<typeof createClient>>;
@@ -27,7 +33,9 @@ async function myBusinessId(supabase: Db): Promise<string | null> {
   return data?.id ?? null;
 }
 
-function readEntry(formData: FormData): { category: KbCategory; title: string; content: string } | string {
+type EntryInput = { category: KbCategory; title: string; content: string; price_myr: number | null };
+
+function readEntry(formData: FormData): EntryInput | string {
   const category = String(formData.get("category") ?? "");
   if (!KB_CATEGORIES.includes(category as KbCategory)) return "Pick a section.";
 
@@ -37,8 +45,16 @@ function readEntry(formData: FormData): { category: KbCategory; title: string; c
 
   if (!title) return isFaq ? "Type the question customers ask." : "Give it a short name.";
   if (!content) return isFaq ? "Type the answer." : "Add the details.";
+  if (title.length > MAX_ENTRY_TITLE) return `Keep the ${isFaq ? "question" : "name"} under ${MAX_ENTRY_TITLE} characters.`;
+  if (content.length > MAX_ENTRY_CONTENT) {
+    return `Keep the ${isFaq ? "answer" : "details"} under ${MAX_ENTRY_CONTENT} characters. Split it into two entries if you need more.`;
+  }
 
-  return { category: category as KbCategory, title, content };
+  // Only things that are sold have a price. A question never does.
+  const price = isFaq ? null : parsePrice(String(formData.get("price") ?? ""));
+  if (price === "invalid") return `Type the price as a number, such as 3 or 3.50 (up to ${MAX_PRICE_MYR}).`;
+
+  return { category: category as KbCategory, title, content, price_myr: price };
 }
 
 export async function createKnowledgeEntry(_prev: FormState, formData: FormData): Promise<FormState> {
@@ -50,8 +66,20 @@ export async function createKnowledgeEntry(_prev: FormState, formData: FormData)
   const entry = readEntry(formData);
   if (typeof entry === "string") return { error: entry };
 
-  const { error } = await supabase.from("knowledge_entries").insert({ business_id: businessId, ...entry });
-  if (error) return { error: "Could not save. Is migration 0008 applied?" };
+  const { count } = await supabase
+    .from("knowledge_entries")
+    .select("id", { count: "exact", head: true })
+    .eq("business_id", businessId);
+  if ((count ?? 0) >= MAX_ENTRIES) {
+    return { error: `You have reached ${MAX_ENTRIES} entries. Delete or combine some before adding more.` };
+  }
+
+  // price_myr exists from migration 0015, so leave it out of the row when there is no price.
+  const { price_myr, ...rest } = entry;
+  const { error } = await supabase
+    .from("knowledge_entries")
+    .insert({ business_id: businessId, ...rest, ...(price_myr != null ? { price_myr } : {}) });
+  if (error) return { error: "Could not save. Are migrations 0008 and 0015 applied?" };
 
   revalidatePath("/dashboard/knowledge");
   return { ok: true };
@@ -90,6 +118,9 @@ export async function saveOtherNotes(_prev: FormState, formData: FormData): Prom
   if (!businessId) return { error: "Please sign in again." };
 
   const notes = String(formData.get("business_facts") ?? "").trim() || null;
+  if (notes && notes.length > MAX_NOTES_CHARS) {
+    return { error: `Keep the notes under ${MAX_NOTES_CHARS} characters. Move details into entries instead.` };
+  }
   const { error } = await supabase.from("businesses").update({ business_facts: notes }).eq("id", businessId);
   if (error) return { error: "Could not save. Try again." };
 
@@ -97,14 +128,14 @@ export async function saveOtherNotes(_prev: FormState, formData: FormData): Prom
   return { ok: true };
 }
 
-const STARTER: { category: KbCategory; title: string; content: string }[] = [
-  { category: "menu", title: "Cupcakes", content: "Chocolate, vanilla, red velvet. RM3 each. Minimum order 12." },
-  { category: "menu", title: "Birthday cake, 1 tier (serves 10)", content: "RM120. Chocolate, vanilla or red velvet." },
-  { category: "menu", title: "Birthday cake, 2 tier (serves 20)", content: "RM220. Same flavours as the 1 tier." },
+const STARTER: { category: KbCategory; title: string; content: string; price_myr?: number }[] = [
+  { category: "menu", title: "Cupcakes", content: "Chocolate, vanilla, red velvet. RM3 each. Minimum order 12.", price_myr: 3 },
+  { category: "menu", title: "Birthday cake, 1 tier (serves 10)", content: "RM120. Chocolate, vanilla or red velvet.", price_myr: 120 },
+  { category: "menu", title: "Birthday cake, 2 tier (serves 20)", content: "RM220. Same flavours as the 1 tier.", price_myr: 220 },
   { category: "hours", title: "Opening hours", content: "Monday to Saturday, 9am to 6pm. Closed on Sunday." },
   { category: "hours", title: "How much notice we need", content: "Cupcakes: at least 1 day. Cakes: at least 3 days." },
   { category: "location", title: "Pickup", content: "Wangsa Maju, Kuala Lumpur. Exact address sent after the order is confirmed." },
-  { category: "location", title: "Delivery", content: "Shah Alam and Petaling Jaya only, RM10. Between 10am and 5pm." },
+  { category: "location", title: "Delivery", content: "Shah Alam and Petaling Jaya only, RM10. Between 10am and 5pm.", price_myr: 10 },
   { category: "policy", title: "Payment", content: "Full payment before pickup or delivery, by bank transfer. Every order is confirmed by the owner." },
   { category: "policy", title: "Cancellations", content: "Free to cancel or change up to 24 hours before pickup or delivery." },
   {
@@ -126,9 +157,15 @@ export async function loadStarterKnowledge(): Promise<FormState> {
     .eq("business_id", businessId);
   if (count) return { error: "You already have entries, so the example was not added." };
 
-  const { error } = await supabase
+  let { error } = await supabase
     .from("knowledge_entries")
     .insert(STARTER.map((e) => ({ business_id: businessId, ...e })));
+  if (error) {
+    // No price column yet (migration 0015 not applied): add the example without prices.
+    ({ error } = await supabase
+      .from("knowledge_entries")
+      .insert(STARTER.map(({ price_myr, ...e }) => (void price_myr, { business_id: businessId, ...e }))));
+  }
   if (error) return { error: "Could not add the example. Is migration 0008 applied?" };
 
   revalidatePath("/dashboard/knowledge");

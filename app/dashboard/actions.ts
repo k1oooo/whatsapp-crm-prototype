@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { CONSENT_ASK, readSettings } from "@/lib/follow-up-settings";
 import { scheduleAfterPayment } from "@/lib/follow-ups";
+import { encryptSecret } from "@/lib/secrets";
 import { resolveToken, sendMode, sendWhatsAppText } from "@/lib/send";
 import { checkPhoneNumberAccess } from "@/lib/whatsapp-connection";
 import {
@@ -185,8 +186,15 @@ export async function saveWhatsAppConnection(
   const appSecret = own("wa_app_secret");
   const accessToken = own("wa_access_token");
   const verifyToken = own("wa_verify_token");
-  if (appSecret !== undefined) update.wa_app_secret = appSecret;
-  if (accessToken !== undefined) update.wa_access_token = accessToken;
+  // The access token and app secret are stored encrypted. The verify token stays readable: Meta
+  // sends it back in the clear during webhook setup and it is looked up by value.
+  try {
+    if (appSecret !== undefined) update.wa_app_secret = appSecret === null ? null : encryptSecret(appSecret);
+    if (accessToken !== undefined) update.wa_access_token = accessToken === null ? null : encryptSecret(accessToken);
+  } catch (err) {
+    console.error("Could not encrypt WhatsApp credentials", err);
+    return { error: "This server is not set up to store WhatsApp credentials safely yet (WA_SECRETS_KEY is missing)." };
+  }
   if (verifyToken !== undefined) update.wa_verify_token = verifyToken;
 
   const { data: existing } = await supabase
@@ -198,11 +206,13 @@ export async function saveWhatsAppConnection(
   // What the business will have saved once this form is applied.
   const after = (key: "wa_app_secret" | "wa_access_token" | "wa_verify_token") =>
     (key in update ? update[key] : (existing?.[key] as string | null | undefined)) ?? null;
-  const effectiveToken = after("wa_access_token");
+  // For the live check: the token typed just now, or the one already stored (resolveToken decrypts it).
+  const effectiveToken = accessToken !== undefined ? accessToken : (existing?.wa_access_token as string | null | undefined) ?? null;
+  const hasToken = !!after("wa_access_token");
 
   // A business with its own Meta credentials is verified only against its own app secret. Without
   // it nobody could prove a message really came from Meta, so refuse to save that half-set-up state.
-  if ((effectiveToken || after("wa_verify_token")) && !after("wa_app_secret")) {
+  if ((hasToken || after("wa_verify_token")) && !after("wa_app_secret")) {
     return {
       error:
         "Add your Meta app secret too. Without it, messages for this number cannot be verified as coming from WhatsApp.",
@@ -649,6 +659,8 @@ async function restoreDraft(draft: {
   body: string;
   order_status: string | null;
   order_summary: string | null;
+  order_lines?: unknown;
+  order_total_myr?: number | null;
 }) {
   const { error } = await createAdminClient().from("draft_replies").insert(draft);
   if (error && error.code !== "23505") {
@@ -670,12 +682,16 @@ export async function sendDraftReply(
 
   // Claim the draft by deleting it and reading back what was deleted. Only one request can get the
   // row, so a double click sends once. (The old order, send first and delete after, let both through.)
-  const { data: draft } = await supabase
+  const { data: draft, error: claimError } = await supabase
     .from("draft_replies")
     .delete()
     .eq("lead_id", leadId)
-    .select("lead_id, business_id, body, order_status, order_summary")
+    .select("lead_id, business_id, body, order_status, order_summary, order_lines, order_total_myr")
     .maybeSingle();
+  if (claimError) {
+    console.error("Could not claim the draft (is migration 0015 applied?)", claimError.message);
+    return { error: "Could not send the draft. Try again." };
+  }
   if (!draft)
     return {
       error:
@@ -697,6 +713,11 @@ export async function sendDraftReply(
         ? "paid"
         : draft.order_status;
     extra.order_summary = draft.order_summary ?? ctx.lead.order_summary ?? null;
+  }
+  // The priced order the assistant worked out travels with the draft onto the lead.
+  if (draft.order_lines) {
+    extra.order_lines = draft.order_lines;
+    extra.order_total_myr = draft.order_total_myr ?? null;
   }
 
   const result = await deliver(supabase, ctx, body, "bot", extra);

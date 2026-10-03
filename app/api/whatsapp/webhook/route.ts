@@ -1,9 +1,12 @@
 import { after, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyWebhook } from "@/lib/webhook-auth";
-import { processPayload, type WaWebhookPayload } from "@/lib/whatsapp";
+import { drainInboundJobs } from "@/lib/inbound-queue";
+import { handleInboundJob, ingestPayload, type WaWebhookPayload } from "@/lib/whatsapp";
 
 export const runtime = "nodejs";
+// The background work after the reply (AI and sending) runs inside this limit.
+export const maxDuration = 60;
 
 // Meta calls this once when you (or a business using their own Meta app) register the webhook
 // URL. The shared deployment token covers the common case; a business with their own Meta app
@@ -52,12 +55,23 @@ export async function POST(req: NextRequest) {
     return new Response("Invalid signature", { status: 401 });
   }
 
-  // Reply 200 fast so Meta does not retry, then do the slow work.
+  // Store the messages and queue the work BEFORE answering. If this fails, answer 500 so Meta sends
+  // the delivery again: the messages are deduplicated, and one nobody has answered yet is queued
+  // again. (Answering 200 first and storing later, as before, lost the message on a crash.)
+  try {
+    await ingestPayload(admin, payload);
+  } catch (err) {
+    console.error("Webhook ingest failed", err);
+    return new Response("Temporary failure", { status: 500 });
+  }
+
+  // Then answer Meta and do the slow part (AI, sending) in the background. If this is cut short, the
+  // job stays in the queue and is retried (here on the next webhook, or by the cron sweeper).
   after(async () => {
     try {
-      await processPayload(admin, payload);
+      await drainInboundJobs(admin, (job) => handleInboundJob(admin, job), { budgetMs: 45_000 });
     } catch (err) {
-      console.error("Webhook processing failed", err);
+      console.error("Inbound worker failed", err);
     }
   });
 

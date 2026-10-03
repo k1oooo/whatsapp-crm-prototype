@@ -1,5 +1,6 @@
 // Webhook authentication. Kept apart from the route so it can be tested without an HTTP request.
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { readSecret } from "@/lib/secrets";
 import { verifySignature, type WaWebhookPayload } from "@/lib/whatsapp";
 
 // A real delivery comes from one Meta app and carries one number, or a few numbers of one WABA.
@@ -38,7 +39,8 @@ async function secretFor(db: SupabaseClient, phoneNumberId: string, shared: stri
     return undefined;
   }
   if (!business) return shared; // not ours: it is ignored later, but the signature must still be genuine
-  if (business.wa_app_secret) return business.wa_app_secret as string;
+  // Stored encrypted. If it is there but cannot be read, fail closed rather than use the shared secret.
+  if (business.wa_app_secret) return readSecret(business.wa_app_secret as string, "app secret") ?? undefined;
   const hasOwnCredentials = !!(business.wa_access_token || business.wa_verify_token);
   return hasOwnCredentials ? undefined : shared;
 }

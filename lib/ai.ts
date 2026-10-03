@@ -7,6 +7,9 @@
 //   neither               -> mock mode (fixed sample output, no network)
 
 import Anthropic from "@anthropic-ai/sdk";
+import { z } from "zod";
+import { fetchWithRetry } from "@/lib/http";
+import { MAX_LINE_QTY, MAX_ORDER_LINES, TOTAL_TOKEN, type CatalogItem, type OrderLineInput } from "@/lib/order";
 
 // Free-tier default: Google AI Studio through its OpenAI-compatible endpoint.
 // Model ids change often, so check AI Studio for the current Flash-Lite id and set AI_MODEL.
@@ -46,6 +49,9 @@ function provider(): Provider {
 
 let _anthropic: Anthropic | null = null;
 
+// Per attempt. Two attempts at most, so a model call can never run past about 45 seconds.
+const AI_TIMEOUT_MS = 20_000;
+
 async function complete(
   kind: "extract" | "draft" | "agent",
   system: string,
@@ -61,21 +67,27 @@ async function complete(
           : process.env.AI_MODEL_DRAFT;
     const model = specific || process.env.AI_MODEL || DEFAULT_MODEL;
 
-    const res = await fetch(`${base}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${process.env.AI_API_KEY}`,
+    // A model call is safe to repeat. It is capped well under the function's time limit, so a slow
+    // provider fails (and the job is retried or handed to the owner) instead of hanging the worker.
+    const res = await fetchWithRetry(
+      `${base}/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${process.env.AI_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model,
+          temperature: kind === "agent" ? 0.2 : undefined,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+        }),
       },
-      body: JSON.stringify({
-        model,
-        temperature: kind === "agent" ? 0.2 : undefined,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-      }),
-    });
+      { timeoutMs: AI_TIMEOUT_MS, retries: 1 },
+    );
 
     if (!res.ok) {
       throw new Error(`AI request failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
@@ -85,7 +97,7 @@ async function complete(
   }
 
   // Anthropic
-  if (!_anthropic) _anthropic = new Anthropic();
+  if (!_anthropic) _anthropic = new Anthropic({ timeout: AI_TIMEOUT_MS, maxRetries: 1 });
   const res = await _anthropic.messages.create({
     model: kind === "extract" ? CLAUDE_EXTRACT_MODEL : CLAUDE_DRAFT_MODEL,
     max_tokens: kind === "extract" ? 400 : kind === "agent" ? 700 : 300,
@@ -123,12 +135,50 @@ Rules:
 const str = (v: unknown): string | null =>
   typeof v === "string" && v.trim() ? v.trim() : null;
 
-/** Free models sometimes return sloppy JSON. Pull out the object. */
-function extractJson(text: string): Record<string, unknown> {
+/**
+ * Free models sometimes wrap the JSON in prose or code fences. Find the first complete top-level
+ * object by matching braces (ignoring braces inside strings), so trailing text containing a "}"
+ * can no longer break the parse.
+ */
+export function extractJson(text: string): Record<string, unknown> {
   const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start === -1 || end === -1) throw new Error("No JSON in AI reply");
-  return JSON.parse(text.slice(start, end + 1));
+  if (start === -1) throw new Error("No JSON in AI reply");
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}" && --depth === 0) {
+      const parsed = JSON.parse(text.slice(start, i + 1));
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("AI reply is not a JSON object");
+      return parsed as Record<string, unknown>;
+    }
+  }
+  throw new Error("Unterminated JSON in AI reply");
+}
+
+/** Ask the model for JSON, and once more (with a nudge) if what came back was not a JSON object. */
+async function completeJson(
+  kind: "extract" | "draft" | "agent",
+  system: string,
+  user: string,
+): Promise<Record<string, unknown>> {
+  const first = await complete(kind, system, user);
+  try {
+    return extractJson(first);
+  } catch (err) {
+    console.warn("AI reply was not valid JSON, asking once more:", err instanceof Error ? err.message : err);
+    const second = await complete(kind, system, `${user}\n\nYour last reply could not be read. Reply with ONLY the JSON object, nothing else.`);
+    return extractJson(second);
+  }
 }
 
 /** Clean every lead field so a sloppy reply cannot put bad data in the database. */
@@ -164,8 +214,7 @@ export async function extractLead(messages: ChatMessage[]): Promise<LeadFields> 
     };
   }
 
-  const text = await complete("extract", EXTRACT_SYSTEM, transcript(messages));
-  return cleanLead(extractJson(text));
+  return cleanLead(await completeJson("extract", EXTRACT_SYSTEM, transcript(messages)));
 }
 
 /**
@@ -248,6 +297,8 @@ export type OrderStatus = "none" | "collecting" | "awaiting_confirmation" | "con
 export interface OrderState {
   status: OrderStatus;
   summary: string | null;
+  /** Item codes and quantities, when the business has priced menu items. The server prices them. */
+  lines?: OrderLineInput[];
 }
 
 export interface AgentResult {
@@ -262,7 +313,6 @@ export interface AgentResult {
 /** Sent to the customer when a human has to take over and the AI has nothing safe to say. */
 export const HOLDING_FALLBACK = "Terima kasih! Saya check dulu dan update balik sekejap ya.";
 
-const REASONS: EscalationReason[] = ["discount", "stock", "payment", "unsure"];
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -314,14 +364,47 @@ const AGENT_LEAD_RULES = `The "lead" object has these keys: name (string or null
 - stage is one of: new, talking (details being discussed), quoted (a price was given), won (customer confirmed and paid), lost (customer declined).
 - language is the customer's main style: en, bm, or manglish.`;
 
+const LEGACY_TOTAL_RULE =
+  "You may multiply and add prices from the facts to get the total (for example 12 x RM3 = RM36, plus RM10 delivery).";
+const PRICED_TOTAL_RULE = `Items marked with a code such as [P1] have a fixed price. NEVER add up or multiply prices yourself. Write the exact text ${TOTAL_TOKEN} where the total belongs, and the system puts in the correct amount. You may state one item's own price, such as "RM3 each". Do not write any other amount.`;
+const ORDER_LINES_DOC = ` It also has "lines": a list of {"item": "<code>", "qty": <whole number>} with one entry for every coded item in the order, including the delivery fee if it has a code. Send the full list in every message from the order summary onward. Use [] when there is no order yet.`;
+
+const ORDER_STATUS_VALUES = ["none", "collecting", "awaiting_confirmation", "confirmed"] as const;
+const REASON_VALUES = ["discount", "stock", "payment", "unsure"] as const;
+
+const orderLineSchema = z.object({
+  item: z.string().trim().min(1).max(12),
+  qty: z.coerce.number().int().min(1).max(MAX_LINE_QTY),
+});
+
+/** The shape the agent must return. Lenient on text, strict on anything that touches money. */
+export const agentOutputSchema = z.object({
+  action: z.enum(["reply", "escalate"]).catch("escalate"),
+  reason: z.enum(REASON_VALUES).nullable().catch(null),
+  // A missing or non-string field must degrade to a default. A bare z.unknown() would throw on a missing key.
+  reply: z.string().catch("").transform((v) => v.trim().slice(0, 1000)),
+  note: z.string().catch("").transform((v) => str(v)),
+  order: z
+    .object({
+      status: z.enum(ORDER_STATUS_VALUES).catch("none"),
+      summary: z.string().catch("").transform((v) => v.trim().slice(0, 500) || null),
+      lines: z.array(orderLineSchema).max(MAX_ORDER_LINES).catch([]),
+    })
+    .catch({ status: "none", summary: null, lines: [] }),
+  lead: z.record(z.string(), z.unknown()).catch({}),
+});
+
 export async function runAgent(args: {
   facts: string | null;
   toneNotes?: string | null;
   lead: LeadFields;
   order?: OrderState;
   messages: ChatMessage[];
+  /** Priced menu items. When there are any, the server computes totals and the AI must not. */
+  catalog?: CatalogItem[];
 }): Promise<AgentResult> {
   const { facts, toneNotes, lead, messages } = args;
+  const priced = (args.catalog?.length ?? 0) > 0;
   const order = args.order ?? { status: "none" as const, summary: null };
 
   if (provider() === "mock") return mockAgent(lead, messages, order.status);
@@ -341,7 +424,7 @@ You answer questions and take complete orders on your own. The owner is pulled i
 
 2. Take the order. An order needs all of these before you summarise it: (a) the item, including flavour or type, and the quantity; (b) pickup or delivery, and the address if delivery; (c) the date; (d) the time; (e) the customer's name for the order. Ask for the name even if you can see a WhatsApp name, because it may not be their real name. Ask for what is missing, one or two questions per message, and do not hand over while you are still collecting. If the customer answers only some of it, ask for the rest.
 
-3. Confirm. When you have everything and the order follows the rules, send an ORDER SUMMARY: items and quantities, pickup or delivery with date and time, the name, and the total. You may multiply and add prices from the facts to get the total (for example 12 x RM3 = RM36, plus RM10 delivery). Then ask the customer to confirm. If they change something, send a new summary and ask again.
+3. Confirm. When you have everything and the order follows the rules, send an ORDER SUMMARY: items and quantities, pickup or delivery with date and time, the name, and the total. ${priced ? PRICED_TOTAL_RULE : LEGACY_TOTAL_RULE} Then ask the customer to confirm. If they change something, send a new summary and ask again.
 
 4. Payment. Only after the customer clearly confirms the latest summary (for example "ok", "confirm", "boleh"), set order status to "confirmed" and reply with a short thank you that says the order is confirmed and asks them to pay and send the receipt here. Do NOT write any bank or payment details yourself: they are added automatically under your message. Never ask for payment before they confirm.
 
@@ -353,7 +436,7 @@ Return ONLY a JSON object with exactly these keys, in this order:
 - reason: null when replying. When escalating, one of "discount", "stock", "payment", "unsure"
 - reply: the message to send to the customer
 - note: null when replying. When escalating, one short sentence for the owner saying what to decide, with the details. Write dates the way people say them, like "21 Sept", never 2026-09-21.
-- order: an object with "status" and "summary". status is "none" (no order yet), "collecting" (still asking for details), "awaiting_confirmation" (you sent a summary and are waiting for the customer to confirm) or "confirmed" (they confirmed the summary). summary is the one-line order summary once you have one, otherwise null.
+- order: an object with "status" and "summary". status is "none" (no order yet), "collecting" (still asking for details), "awaiting_confirmation" (you sent a summary and are waiting for the customer to confirm) or "confirmed" (they confirmed the summary). summary is the one-line order summary once you have one, otherwise null.${priced ? ORDER_LINES_DOC : ""}
 - lead: an object, described below
 
 Things you always answer yourself, without the owner: "ada cupcake tak?", "harga berapa?", "boleh delivery ke Shah Alam?", "buka hari Ahad?", "nak order 10" when the minimum is 12, "esok boleh pickup?" when the notice needed in the facts allows it.
@@ -373,7 +456,7 @@ If the customer asks whether they are talking to a person or a bot, say honestly
 Style: 1 to 3 short sentences, like a person, not a marketer. An order summary may be a short list. Do not use em dashes. Never call the customer "kak", "abang" or any title they used for the owner. Do not repeat the customer's name in the middle of a sentence.
 
 ${AGENT_LEAD_RULES}
-When you state a price from the facts, set quoted_price_myr to it.`;
+${priced ? "Leave quoted_price_myr as null: the system sets it from the order total." : "When you state a price from the facts, set quoted_price_myr to it."}`;
 
   const user = `Known lead details: ${JSON.stringify(lead)}
 Order so far: ${JSON.stringify(order)}
@@ -381,32 +464,20 @@ Order so far: ${JSON.stringify(order)}
 Chat (oldest first). Reply to the CUSTOMER's latest message(s) that have not been answered:
 ${transcript(messages, true)}`;
 
-  const text = await complete("agent", system, user);
-  const raw = extractJson(text);
+  const raw = await completeJson("agent", system, user);
 
-  const action = raw.action === "reply" ? "reply" : "escalate";
-  const reason = REASONS.includes(raw.reason as EscalationReason)
-    ? (raw.reason as EscalationReason)
-    : null;
-  const reply = (str(raw.reply) ?? "").slice(0, 1000);
-
-  const leadRaw =
-    raw.lead && typeof raw.lead === "object" ? (raw.lead as Record<string, unknown>) : {};
-
-  const orderRaw =
-    raw.order && typeof raw.order === "object" ? (raw.order as Record<string, unknown>) : {};
-  const ORDER_STATUSES: OrderStatus[] = ["none", "collecting", "awaiting_confirmation", "confirmed"];
-  const orderStatus = ORDER_STATUSES.includes(orderRaw.status as OrderStatus)
-    ? (orderRaw.status as OrderStatus)
-    : "none";
+  // Every field has a safe default, so a sloppy reply degrades to "hand over to the owner" instead of
+  // putting bad data in the database. Order lines are all or nothing: one bad line drops the lot.
+  const parsed = agentOutputSchema.parse(raw);
+  const action = parsed.action;
 
   return {
     action,
-    reason: action === "escalate" ? (reason ?? "unsure") : null,
-    reply,
-    note: action === "escalate" ? (str(raw.note) ?? "Please check this chat.").slice(0, 300) : null,
-    order: { status: orderStatus, summary: (str(orderRaw.summary) ?? "").slice(0, 500) || null },
-    lead: cleanLead(leadRaw),
+    reason: action === "escalate" ? (parsed.reason ?? "unsure") : null,
+    reply: parsed.reply,
+    note: action === "escalate" ? (parsed.note ?? "Please check this chat.").slice(0, 300) : null,
+    order: { status: parsed.order.status, summary: parsed.order.summary, lines: parsed.order.lines },
+    lead: cleanLead(parsed.lead),
   };
 }
 
@@ -536,7 +607,7 @@ Read the customer's latest message. Return ONLY a JSON object with exactly these
 - reply: a thank-you of 1 or 2 short sentences in the customer's language. If they are happy, thank them warmly. If they are unhappy or unsure, apologise and say the owner will contact them personally. Never offer a refund, discount or compensation. Do not include any link. Do not use em dashes. Empty string when is_feedback is false.`;
 
   const user = `Customer name: ${customerName ?? "unknown"}\n\nChat:\n${transcript(messages, true)}`;
-  const raw = extractJson(await complete("agent", system, user));
+  const raw = await completeJson("agent", system, user);
 
   const rating = Number(raw.rating);
   return {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MAX_PHONE_NUMBER_IDS, phoneNumberIdsOf, verifyWebhook } from "@/lib/webhook-auth";
 import type { WaWebhookPayload } from "@/lib/whatsapp";
 import { createFakeSupabase, type FakeDb } from "@/test/fake-supabase";
@@ -117,4 +117,35 @@ describe("verifyWebhook", () => {
     };
     expect(await check(db, payloadFor("1111111"), SHARED)).toBe(false);
   });
+});
+
+describe("verifyWebhook with encrypted credentials", () => {
+  const KEY = Buffer.alloc(32, 3).toString("base64");
+  const withKey = async (fn: () => Promise<void>) => {
+    process.env.WA_SECRETS_KEY = KEY;
+    try {
+      await fn();
+    } finally {
+      delete process.env.WA_SECRETS_KEY;
+    }
+  };
+
+  it("verifies against a secret that is stored encrypted", () =>
+    withKey(async () => {
+      const { encryptSecret } = await import("@/lib/secrets");
+      const biz = { ...bizA, wa_app_secret: encryptSecret(SECRET_A), wa_access_token: encryptSecret("tok") };
+      expect(await check(dbWith([biz]), payloadFor("1111111"), SECRET_A)).toBe(true);
+      expect(await check(dbWith([biz]), payloadFor("1111111"), SHARED)).toBe(false);
+    }));
+
+  it("fails closed when the stored secret cannot be decrypted, instead of using the shared one", () =>
+    withKey(async () => {
+      const { encryptSecret } = await import("@/lib/secrets");
+      const stored = encryptSecret(SECRET_A);
+      delete process.env.WA_SECRETS_KEY; // key lost
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const biz = { ...bizA, wa_app_secret: stored };
+      expect(await check(dbWith([biz]), payloadFor("1111111"), SECRET_A)).toBe(false);
+      expect(await check(dbWith([biz]), payloadFor("1111111"), SHARED)).toBe(false);
+    }));
 });
