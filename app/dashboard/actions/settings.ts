@@ -9,6 +9,9 @@ import { resolveToken, sendMode } from "@/lib/send";
 import { checkPhoneNumberAccess } from "@/lib/whatsapp-connection";
 import { type FormState } from "@/app/dashboard/actions/shared";
 
+const NOT_SAVED =
+  "Nothing was saved: no business is linked to the account you are signed in with. Sign out and sign back in, or check you are using the same account that owns the business.";
+
 /** Save the WhatsApp phone number this business sends and receives from. */
 export async function saveWhatsAppConnection(
   _prev: FormState,
@@ -44,25 +47,41 @@ export async function saveWhatsAppConnection(
   // The access token and app secret are stored encrypted. The verify token stays readable: Meta
   // sends it back in the clear during webhook setup and it is looked up by value.
   try {
-    if (appSecret !== undefined) update.wa_app_secret = appSecret === null ? null : encryptSecret(appSecret);
-    if (accessToken !== undefined) update.wa_access_token = accessToken === null ? null : encryptSecret(accessToken);
+    if (appSecret !== undefined)
+      update.wa_app_secret =
+        appSecret === null ? null : encryptSecret(appSecret);
+    if (accessToken !== undefined)
+      update.wa_access_token =
+        accessToken === null ? null : encryptSecret(accessToken);
   } catch (err) {
     console.error("Could not encrypt WhatsApp credentials", err);
-    return { error: "This server is not set up to store WhatsApp credentials safely yet (WA_SECRETS_KEY is missing)." };
+    return {
+      error:
+        "This server is not set up to store WhatsApp credentials safely yet (WA_SECRETS_KEY is missing).",
+    };
   }
   if (verifyToken !== undefined) update.wa_verify_token = verifyToken;
 
   const { data: existing } = await supabase
     .from("businesses")
-    .select("wa_phone_number_id, wa_app_secret, wa_access_token, wa_verify_token")
+    .select(
+      "wa_phone_number_id, wa_app_secret, wa_access_token, wa_verify_token",
+    )
     .eq("owner_id", user.id)
     .maybeSingle();
 
   // What the business will have saved once this form is applied.
-  const after = (key: "wa_app_secret" | "wa_access_token" | "wa_verify_token") =>
-    (key in update ? update[key] : (existing?.[key] as string | null | undefined)) ?? null;
+  const after = (
+    key: "wa_app_secret" | "wa_access_token" | "wa_verify_token",
+  ) =>
+    (key in update
+      ? update[key]
+      : (existing?.[key] as string | null | undefined)) ?? null;
   // For the live check: the token typed just now, or the one already stored (resolveToken decrypts it).
-  const effectiveToken = accessToken !== undefined ? accessToken : (existing?.wa_access_token as string | null | undefined) ?? null;
+  const effectiveToken =
+    accessToken !== undefined
+      ? accessToken
+      : ((existing?.wa_access_token as string | null | undefined) ?? null);
   const hasToken = !!after("wa_access_token");
 
   // A business with its own Meta credentials is verified only against its own app secret. Without
@@ -76,16 +95,21 @@ export async function saveWhatsAppConnection(
 
   // Prove the owner can really use this number. Skipped in test mode, where there is no live token.
   const tokenToCheck = resolveToken(effectiveToken);
-  const changed = phoneNumberId !== existing?.wa_phone_number_id || accessToken !== undefined;
+  const changed =
+    phoneNumberId !== existing?.wa_phone_number_id || accessToken !== undefined;
   if (changed && tokenToCheck && sendMode(effectiveToken) === "live") {
     const check = await checkPhoneNumberAccess(phoneNumberId, tokenToCheck);
     if (!check.ok) return { error: check.error };
   }
 
-  const { error } = await supabase
+  // .select() makes the update report the rows it changed. Without it, an update that matches nothing
+  // (a different signed-in account than the business owner, say) succeeds silently and the form says
+  // "Saved" while the database is untouched.
+  const { data: saved, error } = await supabase
     .from("businesses")
     .update(update)
-    .eq("owner_id", user.id);
+    .eq("owner_id", user.id)
+    .select("id");
 
   if (error) {
     // The phone number ID and verify token must each be unique across businesses.
@@ -102,6 +126,7 @@ export async function saveWhatsAppConnection(
     }
     return { error: "Could not save. Try again." };
   }
+  if (!saved || saved.length === 0) return { error: NOT_SAVED };
 
   revalidatePath("/dashboard", "layout");
   return { ok: true };
@@ -128,7 +153,7 @@ export async function saveSettings(
   // not here, so this never overwrites it with an empty value.
   const replyMode =
     formData.get("reply_mode") === "approve" ? "approve" : "auto";
-  const { error } = await supabase
+  const { data: saved, error } = await supabase
     .from("businesses")
     .update({
       auto_reply: formData.get("auto_reply") === "on",
@@ -136,11 +161,13 @@ export async function saveSettings(
       tone_notes: text("tone_notes"),
       payment_details: text("payment_details"),
     })
-    .eq("owner_id", user.id);
+    .eq("owner_id", user.id)
+    .select("id");
   if (error) {
     console.error("saveSettings failed", error.code, error.message);
     return { error: `Could not save: ${error.message}` };
   }
+  if (!saved || saved.length === 0) return { error: NOT_SAVED };
   revalidatePath("/dashboard", "layout");
   return { ok: true };
 }
@@ -153,14 +180,16 @@ export async function toggleAutoReply(next: boolean): Promise<FormState> {
   } = await supabase.auth.getUser();
   if (!user) return { error: "Please sign in again." };
 
-  const { error } = await supabase
+  const { data: saved, error } = await supabase
     .from("businesses")
     .update({ auto_reply: next })
-    .eq("owner_id", user.id);
+    .eq("owner_id", user.id)
+    .select("id");
   if (error) {
     console.error("toggleAutoReply failed", error.code, error.message);
     return { error: `Could not change the assistant: ${error.message}` };
   }
+  if (!saved || saved.length === 0) return { error: NOT_SAVED };
 
   revalidatePath("/dashboard", "layout");
   return { ok: true };
