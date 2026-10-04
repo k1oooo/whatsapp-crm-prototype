@@ -12,7 +12,8 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => db }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
-import { confirmPayment, saveWhatsAppConnection, sendDraftReply } from "@/app/dashboard/actions";
+import { saveWhatsAppConnection } from "@/app/dashboard/actions/settings";
+import { confirmPayment, sendDraftReply } from "@/app/dashboard/actions/replies";
 
 const noState = {} as never;
 const form = (fields: Record<string, string> = {}) => {

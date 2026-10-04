@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { Bot } from "lucide-react";
 import { toast } from "sonner";
-import { toggleAutoReply } from "@/app/dashboard/actions";
+import { toggleAutoReply } from "@/app/dashboard/actions/settings";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 

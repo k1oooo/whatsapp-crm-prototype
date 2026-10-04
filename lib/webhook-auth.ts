@@ -1,7 +1,8 @@
 // Webhook authentication. Kept apart from the route so it can be tested without an HTTP request.
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { readSecret } from "@/lib/secrets";
-import { verifySignature, type WaWebhookPayload } from "@/lib/whatsapp";
+import { verifySignature } from "@/lib/whatsapp/signature";
+import type { WaWebhookPayload } from "@/lib/whatsapp/types";
 
 // A real delivery comes from one Meta app and carries one number, or a few numbers of one WABA.
 // The lookup below runs BEFORE the signature is trusted, so cap it: an unsigned request must not

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Bot, Image as ImageIcon, MessageSquareDashed, Search, X } from "lucide-react";
-import { searchMessages } from "@/app/dashboard/actions";
+import { searchMessages } from "@/app/dashboard/actions/messages";
 import { ChatAvatar } from "@/components/chat-avatar";
 import { EmptyState } from "@/components/empty-state";
 import { ChatFilterSheet } from "@/components/inbox/chat-filter-sheet";

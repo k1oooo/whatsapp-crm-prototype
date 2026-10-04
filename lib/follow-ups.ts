@@ -7,7 +7,9 @@ import {
   type FollowUpKind,
   type FollowUpSettings,
 } from "@/lib/follow-up-settings";
+import { alert } from "@/lib/alert";
 import { parseOrderSummary } from "@/lib/leads";
+import { log } from "@/lib/log";
 import { sendWhatsAppTemplate, sendWhatsAppText } from "@/lib/send";
 import { isSubscriptionActive, type SubscriptionInfo } from "@/lib/subscriptions";
 
@@ -52,7 +54,7 @@ export async function scheduleAfterPayment(
     });
     // 23505 means this follow-up is already queued for this order. That is fine.
     if (error && error.code !== "23505") {
-      console.error("Could not schedule a follow-up (is migration 0007 applied?)", error.message);
+      log.error("follow_up.schedule_failed", { businessId, leadId, kind: row.kind }, error);
     }
   }
 }
@@ -81,6 +83,9 @@ export async function runDueFollowUps(
     if (hour < 9 || hour >= 21) return summary;
   }
 
+  // A run that died halfway leaves rows in "sending". Report them before taking new work.
+  await recoverStuckFollowUps(db, opts.businessId);
+
   let query = db
     .from("follow_ups")
     .select("id")
@@ -93,7 +98,7 @@ export async function runDueFollowUps(
 
   const { data: due, error } = await query;
   if (error) {
-    console.error("Could not read follow-ups (is migration 0007 applied?)", error.message);
+    log.error("follow_up.read_failed", {}, error);
     return summary;
   }
 
@@ -101,7 +106,7 @@ export async function runDueFollowUps(
     try {
       summary[await processOne(db, row.id)]++;
     } catch (err) {
-      console.error("Follow-up failed", row.id, err);
+      log.error("follow_up.failed", { followUpId: row.id }, err);
       summary.failed++;
     }
   }
@@ -109,14 +114,20 @@ export async function runDueFollowUps(
 }
 
 async function processOne(db: SupabaseClient, id: string): Promise<Outcome> {
-  // Claim it, so two runs at the same time cannot send it twice.
-  const { data: fu } = await db
-    .from("follow_ups")
-    .update({ status: "sending" })
-    .eq("id", id)
-    .eq("status", "scheduled")
-    .select("id, business_id, lead_id, kind, order_key, template_name, body")
-    .maybeSingle();
+  // Claim it, so two runs at the same time cannot send it twice. claimed_at (migration 0016) lets a
+  // row stuck in "sending" be found later. Before that migration, claim without it: follow-ups must
+  // keep going out on a database that has not had 0016 yet.
+  const claim = (extra: Record<string, unknown>) =>
+    db
+      .from("follow_ups")
+      .update({ status: "sending", ...extra })
+      .eq("id", id)
+      .eq("status", "scheduled")
+      .select("id, business_id, lead_id, kind, order_key, template_name, body")
+      .maybeSingle();
+  let { data: fu, error: claimError } = await claim({ claimed_at: new Date().toISOString() });
+  if (claimError) ({ data: fu, error: claimError } = await claim({}));
+  if (claimError) throw claimError;
   if (!fu) return "waiting";
 
   const finish = async (status: "scheduled" | "sent" | "skipped" | "failed", detail: string | null, extra = {}) => {
@@ -234,4 +245,44 @@ async function processOne(db: SupabaseClient, id: string): Promise<Outcome> {
 
   await finish("sent", sent.dry ? "Test mode: saved in the chat, not delivered" : null, { sent_at: now, body: text });
   return "sent";
+}
+
+/** How long a row may stay in "sending" before it counts as stuck. A send takes seconds. */
+export const STUCK_AFTER_MS = 15 * 60_000;
+
+/**
+ * Find follow-ups stuck in "sending": the run that claimed them died (a timeout, a crash) before it
+ * could record the outcome. They are marked failed, never sent again: the message may already have
+ * reached the customer, and sending twice is worse than not sending. The owner sees the reason on the
+ * follow-ups page, and an alert goes out so someone checks whether it was delivered.
+ */
+export async function recoverStuckFollowUps(
+  db: SupabaseClient,
+  businessId?: string,
+  now: () => number = Date.now,
+): Promise<number> {
+  const cutoff = new Date(now() - STUCK_AFTER_MS).toISOString();
+  // Rows claimed before migration 0016 have no claimed_at: judge those by when they were due.
+  let query = db
+    .from("follow_ups")
+    .update({ status: "failed", detail: "Stopped while sending. It may or may not have reached the customer, so check the chat." })
+    .eq("status", "sending")
+    .or(`claimed_at.lt.${cutoff},and(claimed_at.is.null,due_at.lt.${cutoff})`)
+    .select("id, business_id, lead_id, kind");
+  if (businessId) query = query.eq("business_id", businessId);
+
+  const { data, error } = await query;
+  if (error) {
+    log.error("follow_up.recover_failed", {}, error);
+    return 0;
+  }
+  const stuck = (data ?? []) as { id: string; business_id: string; lead_id: string; kind: string }[];
+  if (stuck.length > 0) {
+    await alert(
+      "follow_up.stuck",
+      `${stuck.length} follow-up(s) stopped while sending and were not retried. Check whether the customers received them.`,
+      { fields: { count: stuck.length, followUpIds: stuck.map((s) => s.id).slice(0, 10) } },
+    );
+  }
+  return stuck.length;
 }

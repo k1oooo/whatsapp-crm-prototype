@@ -3,7 +3,7 @@
 import { useState, useTransition, type FormEvent, type KeyboardEvent } from "react";
 import { ExternalLink, Loader2, Send } from "lucide-react";
 import { toast } from "sonner";
-import { sendOwnerMessage } from "@/app/dashboard/actions";
+import { sendOwnerMessage } from "@/app/dashboard/actions/replies";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { waLink } from "@/lib/leads";

@@ -14,7 +14,7 @@
 // silently do the wrong thing rather than throw, so keep it close to what's above.
 
 type Row = Record<string, unknown>;
-type FilterOp = readonly ["eq" | "gt" | "lt" | "in" | "neq" | "is" | "or", string, unknown];
+type FilterOp = readonly ["eq" | "gt" | "gte" | "lt" | "lte" | "in" | "neq" | "is" | "or", string, unknown];
 
 export interface FakeDb {
   [table: string]: Row[];
@@ -29,6 +29,8 @@ const UNIQUE_CONSTRAINTS: Record<string, Unique[]> = {
   messages: [["business_id", "wa_message_id"]],
   draft_replies: [["lead_id"]],
   subscriptions: [["business_id"]],
+  // 0007: a follow-up is queued once per chat, kind and order.
+  follow_ups: [["lead_id", "kind", "order_key"]],
   // 0015: one waiting and one running job per chat.
   inbound_jobs: [
     { cols: ["lead_id"], where: (r) => r.status === "queued" },
@@ -116,14 +118,35 @@ function pickCols(row: Row, cols: string | undefined): Row {
   return out;
 }
 
-/** One clause of a PostgREST .or() string, such as "order_status.is.null" or "order_status.neq.paid". */
+/** Split on commas that are not inside parentheses: "a.is.null,and(b.eq.1,c.eq.2)". */
+function splitTop(expr: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of expr) {
+    if (ch === "(") depth++;
+    if (ch === ")") depth--;
+    if (ch === "," && depth === 0) {
+      parts.push(cur);
+      cur = "";
+    } else cur += ch;
+  }
+  if (cur) parts.push(cur);
+  return parts;
+}
+
+/** One clause of a PostgREST .or() string, such as "order_status.is.null" or "and(a.lt.1,b.is.null)". */
 function matchesOrClause(row: Row, clause: string): boolean {
-  const [col, op, ...rest] = clause.split(".");
+  const c = clause.trim();
+  if (c.startsWith("and(") && c.endsWith(")")) return splitTop(c.slice(4, -1)).every((x) => matchesOrClause(row, x));
+  const [col, op, ...rest] = c.split(".");
   const val = rest.join(".");
   const rv = row[col];
   if (op === "is") return val === "null" ? rv == null : String(rv) === val;
   if (op === "neq") return rv != null && String(rv) !== val; // SQL: NULL <> 'x' is not true
   if (op === "eq") return rv != null && String(rv) === val;
+  if (op === "lt") return rv != null && String(rv) < val;
+  if (op === "gt") return rv != null && String(rv) > val;
   return false;
 }
 
@@ -132,11 +155,13 @@ function matchesFilters(row: Row, filters: FilterOp[]): boolean {
     const rv = row[col];
     if (op === "eq") return rv === val;
     if (op === "gt") return rv != null && String(rv) > String(val);
+    if (op === "gte") return rv != null && String(rv) >= String(val);
     if (op === "lt") return rv != null && String(rv) < String(val);
+    if (op === "lte") return rv != null && String(rv) <= String(val);
     if (op === "in") return (val as unknown[]).includes(rv);
     if (op === "neq") return rv != null && rv !== val;
     if (op === "is") return val === null ? rv == null : rv === val;
-    if (op === "or") return String(val).split(",").some((c) => matchesOrClause(row, c.trim()));
+    if (op === "or") return splitTop(String(val)).some((c) => matchesOrClause(row, c));
     return true;
   });
 }
@@ -144,7 +169,24 @@ function matchesFilters(row: Row, filters: FilterOp[]): boolean {
 const KNOWN_TABLES = ["businesses", "leads", "messages", "draft_replies", "subscriptions", "follow_ups", "knowledge_entries", "knowledge_documents", "feedback"];
 
 /** Create a fresh fake client. Pass seed rows per table to start with existing data. */
-export function createFakeSupabase(seed: FakeDb = {}) {
+/**
+ * A table that is not in the database (a migration was not applied): every query on it answers with
+ * Postgres's "undefined table" error, the way the real API does.
+ */
+function missingTableBuilder(table: string) {
+  const result = { data: null, error: { code: "42P01", message: `relation "public.${table}" does not exist` } };
+  const proxy: unknown = new Proxy(() => undefined, {
+    get: (_t, prop) => (prop === "then" ? (resolve: (v: unknown) => unknown) => resolve(result) : () => proxy),
+  });
+  return proxy;
+}
+
+export interface FakeOptions {
+  /** Tables to act as if they do not exist. Missing "inbound_jobs" also removes claim_inbound_jobs. */
+  missingTables?: string[];
+}
+
+export function createFakeSupabase(seed: FakeDb = {}, options: FakeOptions = {}) {
   const db: FakeDb = {};
   for (const t of KNOWN_TABLES) db[t] = [];
   for (const [table, rows] of Object.entries(seed)) db[table] = rows.map((r) => ({ ...r }));
@@ -155,6 +197,7 @@ export function createFakeSupabase(seed: FakeDb = {}) {
   }
 
   function from(name: string) {
+    if (options.missingTables?.includes(name)) return missingTableBuilder(name) as never;
     let mode: "select" | "insert" | "update" | "delete" | null = null;
     let payload: Row | undefined;
     let selectCols: string | undefined;
@@ -286,6 +329,14 @@ export function createFakeSupabase(seed: FakeDb = {}) {
         filters.push(["gt", col, val] as const);
         return builder;
       },
+      gte(col: string, val: unknown) {
+        filters.push(["gte", col, val] as const);
+        return builder;
+      },
+      lte(col: string, val: unknown) {
+        filters.push(["lte", col, val] as const);
+        return builder;
+      },
       lt(col: string, val: unknown) {
         filters.push(["lt", col, val] as const);
         return builder;
@@ -322,6 +373,9 @@ export function createFakeSupabase(seed: FakeDb = {}) {
   // the SQL itself was exercised against a real Postgres (see the notes in SETUP.md).
   async function rpc(fn: string, args: { p_limit?: number; p_lease_seconds?: number; p_max_attempts?: number } = {}) {
     if (fn !== "claim_inbound_jobs") return { data: null, error: { message: `unknown function ${fn}` } };
+    if (options.missingTables?.includes("inbound_jobs")) {
+      return { data: null, error: { code: "PGRST202", message: "Could not find the function public.claim_inbound_jobs in the schema cache" } };
+    }
     const jobs = (db.inbound_jobs ??= []);
     const { p_limit = 5, p_lease_seconds = 300, p_max_attempts = 5 } = args;
     const now = Date.now();

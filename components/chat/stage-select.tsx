@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { moveStage } from "@/app/dashboard/actions";
+import { moveStage } from "@/app/dashboard/actions/leads";
 import { Label } from "@/components/ui/label";
 import { StageDot } from "@/components/stage-dot";
 import { Select, SelectContent, SelectItem, SelectOption, SelectTrigger, SelectValue } from "@/components/ui/select";

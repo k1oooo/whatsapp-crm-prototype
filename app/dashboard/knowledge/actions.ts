@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { FormState } from "@/app/dashboard/actions";
+import type { FormState } from "@/app/dashboard/actions/shared";
 import { extractText, getDocumentProxy } from "unpdf";
 import {
   cleanPdfText,

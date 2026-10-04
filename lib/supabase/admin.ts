@@ -1,5 +1,6 @@
 // Service role client. Server only (webhook, cron jobs). Bypasses row level security.
 import { createClient } from "@supabase/supabase-js";
+import type { Database } from "@/lib/db-types";
 
 export function createAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -7,5 +8,5 @@ export function createAdminClient() {
   if (!url || !key) {
     throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
   }
-  return createClient(url, key, { auth: { persistSession: false } });
+  return createClient<Database>(url, key, { auth: { persistSession: false } });
 }

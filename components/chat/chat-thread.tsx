@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useRef, useState, useTransition } from "react";
 import { Bot, Image as ImageIcon, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { loadEarlierMessages } from "@/app/dashboard/actions";
+import { loadEarlierMessages } from "@/app/dashboard/actions/messages";
 import { HandoffCard } from "@/components/chat/handoff-card";
 import { DraftCard } from "@/components/chat/draft-card";
 import { Button } from "@/components/ui/button";

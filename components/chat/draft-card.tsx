@@ -3,7 +3,8 @@
 import { useState, useTransition, type FormEvent } from "react";
 import { Loader2, Send, Trash2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
-import { discardDraftReply, sendDraftReply, type FormState } from "@/app/dashboard/actions";
+import { discardDraftReply, sendDraftReply } from "@/app/dashboard/actions/replies";
+import type { FormState } from "@/app/dashboard/actions/shared";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 

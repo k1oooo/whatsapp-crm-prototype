@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState, useTransition, type FormEvent } from "react";
 import { ArrowRight, Bot, BookOpen, Landmark, Loader2, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
-import { saveSettings, toggleAutoReply } from "@/app/dashboard/actions";
+import { saveSettings, toggleAutoReply } from "@/app/dashboard/actions/settings";
 import { Button } from "@/components/ui/button";
 import {
   Card,

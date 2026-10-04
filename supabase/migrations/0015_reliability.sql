@@ -5,7 +5,44 @@
 -- Safe to run more than once.
 
 -- 1. A message id from one business must never make another business's message look like a duplicate.
-drop index if exists public.messages_wa_message_id_key;
+-- The old global uniqueness exists in one of two forms depending on how the project was first set up:
+-- a UNIQUE constraint on the column (which owns its index, and the index can not be dropped on its
+-- own), or a plain unique index. Drop whichever is there, then add the per-business index.
+do $$
+declare
+  r record;
+  col int2;
+begin
+  select attnum into col
+    from pg_attribute
+   where attrelid = 'public.messages'::regclass and attname = 'wa_message_id' and not attisdropped;
+
+  -- UNIQUE constraints on exactly (wa_message_id), whatever they are called.
+  for r in
+    select conname
+      from pg_constraint
+     where conrelid = 'public.messages'::regclass
+       and contype = 'u'
+       and conkey = array[col]
+  loop
+    execute format('alter table public.messages drop constraint %I', r.conname);
+  end loop;
+
+  -- Plain unique indexes on exactly (wa_message_id) that are left (the primary key is on id, so it is safe).
+  for r in
+    select c.relname
+      from pg_index i
+      join pg_class c on c.oid = i.indexrelid
+     where i.indrelid = 'public.messages'::regclass
+       and i.indisunique
+       and i.indnatts = 1
+       and i.indkey[0] = col
+       and i.indpred is null
+  loop
+    execute format('drop index public.%I', r.relname);
+  end loop;
+end $$;
+
 create unique index if not exists messages_business_wa_message_id_key
   on public.messages (business_id, wa_message_id);
 

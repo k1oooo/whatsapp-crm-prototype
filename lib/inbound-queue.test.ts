@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   LEASE_SECONDS,
   MAX_ATTEMPTS,
@@ -8,6 +8,7 @@ import {
   enqueueInbound,
   failJob,
 } from "@/lib/inbound-queue";
+import { resetAlertCooldowns } from "@/lib/alert";
 import { createFakeSupabase, type FakeDb } from "@/test/fake-supabase";
 
 function setup() {
@@ -209,5 +210,40 @@ describe("deleteFinishedJobs", () => {
     ];
     await deleteFinishedJobs(db, 7);
     expect(jobs(db).map((j) => j.id).sort()).toEqual(["b", "c"]);
+  });
+});
+
+describe("alerting when a job gives up", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.ALERT_WEBHOOK_URL;
+    resetAlertCooldowns();
+  });
+
+  it("sends one alert when a job fails for good, and none for a job that will be retried", async () => {
+    process.env.ALERT_WEBHOOK_URL = "https://alerts.example/hook";
+    resetAlertCooldowns();
+    const f = vi.fn(async () => new Response("ok", { status: 200 }));
+    vi.stubGlobal("fetch", f);
+
+    await enqueueInbound(db, "biz-1", "lead-1");
+    const [job] = await claimInboundJobs(db);
+    await failJob(db, job, new Error("AI down")); // attempt 1 of 5: retry, no alert
+    expect(f).not.toHaveBeenCalled();
+
+    await failJob(db, { ...job, attempts: MAX_ATTEMPTS }, new Error("AI still down"));
+    expect(f).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(String(((f.mock.calls[0] as unknown) as [string, RequestInit])[1].body));
+    expect(body.text).toContain("could not be processed");
+  });
+
+  it("a broken alert endpoint never breaks the job bookkeeping", async () => {
+    process.env.ALERT_WEBHOOK_URL = "https://alerts.example/hook";
+    resetAlertCooldowns();
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("network"); }));
+    await enqueueInbound(db, "biz-1", "lead-1");
+    const [job] = await claimInboundJobs(db);
+    await expect(failJob(db, { ...job, attempts: MAX_ATTEMPTS }, new Error("x"))).resolves.toBe("failed");
+    expect(jobs(db)[0].status).toBe("failed");
   });
 });

@@ -6,12 +6,35 @@
 //  - the database allows one running job per chat, so two quick messages can not be answered twice;
 //  - a second message while a job is waiting just joins it (the job reads the whole chat).
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { alert } from "@/lib/alert";
 
 export interface InboundJob {
   id: string;
   business_id: string;
   lead_id: string;
   attempts: number;
+}
+
+/** A chat that needs handling, whether it came through the queue or (without migration 0015) directly. */
+export interface InlineJob {
+  business_id: string;
+  lead_id: string;
+}
+
+/**
+ * True when the queue itself is missing from the database: the table (migration 0015 not applied) or
+ * the claim function. That is a setup problem, not a failure of one job, so callers fall back to
+ * answering inside the webhook instead of rejecting every message.
+ */
+export function isQueueUnavailable(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const { code, message } = err as { code?: unknown; message?: unknown };
+  const text = typeof message === "string" ? message : "";
+  // It must be about the queue itself. A missing leads table, say, is a different problem and must
+  // not be quietly worked around.
+  if (!/inbound_jobs|claim_inbound_jobs/.test(text)) return false;
+  const missing = ["42P01", "PGRST205", "42883", "PGRST202"].includes(String(code));
+  return missing || /does not exist|schema cache|could not find/i.test(text);
 }
 
 export const MAX_ATTEMPTS = 5;
@@ -73,6 +96,12 @@ export async function failJob(
       })
       .eq("id", job.lead_id);
     if (error) console.error("Could not flag the lead after a failed job", job.lead_id, error.message);
+    // A customer is waiting and the assistant has given up: tell a human (one message per outage, not per job).
+    await alert(
+      "inbound_job.failed",
+      `A customer message could not be processed after ${MAX_ATTEMPTS} tries (job ${job.id}). The chat is flagged "Needs you". Last error: ${message.slice(0, 160)}`,
+      { fields: { jobId: job.id, leadId: job.lead_id, attempts: job.attempts } },
+    );
     return "failed";
   }
 

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { log } from "@/lib/log";
 import { REASON_LABEL, rm, STAGES, STAGE_LABEL, type Stage } from "@/lib/leads";
 
 /** What an order is worth: the computed total if there is one, else the price on the lead. */
@@ -118,11 +119,15 @@ function pctChange(current: number, previous: number): number | null {
 }
 
 /**
+ * The same numbers worked out in JavaScript from the raw rows. This is the fallback for a database
+ * that has not had migration 0016, and the reference the SQL version is checked against. It reads at
+ * most 1000 recent messages, which is the limit the SQL version removes.
+ *
  * Everything the dashboard overview needs, in three queries. Two windows are compared throughout
  * (this week vs. the 7 days before it) so the page can show a trend, not just a snapshot.
  * Read-only and RLS-scoped to the signed-in owner's business, same as every other dashboard page.
  */
-export async function getDashboardData(supabase: SupabaseClient): Promise<DashboardData> {
+export async function getDashboardDataFromRows(supabase: SupabaseClient): Promise<DashboardData> {
   const now = Date.now();
   const weekAgo = new Date(now - WEEK_MS).toISOString();
   const twoWeeksAgo = new Date(now - 2 * WEEK_MS).toISOString();
@@ -309,4 +314,112 @@ export function formatChangePct(pct: number | null, digits = 0): string | null {
   if (pct === null) return null;
   const sign = pct > 0 ? "+" : "";
   return `${sign}${pct.toFixed(digits)}%`;
+}
+
+
+/** What dashboard_stats() (migration 0016) returns: raw numbers, no labels. */
+export interface DashboardStats {
+  needs_you: number;
+  waiting_for_payment: number;
+  paid_orders: number;
+  pipeline: Record<string, number>;
+  attention: { id: string; name: string | null; number: string; reason: string | null; since: string }[];
+  revenue_this: number;
+  revenue_last: number;
+  paid_count_this: number;
+  created_this: number;
+  created_this_paid: number;
+  created_last: number;
+  created_last_paid: number;
+  top_orders: { name: string | null; number: string; amount: number }[];
+  avg_first_reply_seconds: number | null;
+  customer_msgs_this: number;
+  customer_msgs_last: number;
+  outbound_this: number;
+  bot_this: number;
+  outbound_last: number;
+  bot_last: number;
+  due_today_feedback: number;
+  due_today_reorder: number;
+  feedback_avg: number | null;
+  feedback_count: number;
+  activity: {
+    id: string;
+    lead_id: string;
+    source: MessageRow["source"];
+    snippet: string | null;
+    at: string;
+    name: string | null;
+    number: string | null;
+  }[];
+}
+
+const num = (v: unknown) => (v == null ? 0 : Number(v));
+const numOrNull = (v: unknown) => (v == null ? null : Number(v));
+
+/** Turn the SQL numbers into what the page shows: names, "18 min", percentages. */
+export function dashboardFromStats(st: DashboardStats): DashboardData {
+  const nameOf = (name: string | null, number: string | null) => name ?? (number ? `+${number}` : "A customer");
+  const pct = (part: number, whole: number) => (whole > 0 ? (part / whole) * 100 : null);
+
+  const revenueThisWeek = num(st.revenue_this);
+  const revenueLastWeek = num(st.revenue_last);
+  const conversionThisWeekPct = pct(num(st.created_this_paid), num(st.created_this));
+  const conversionLastWeekPct = pct(num(st.created_last_paid), num(st.created_last));
+
+  return {
+    needsYou: num(st.needs_you),
+    waitingForPayment: num(st.waiting_for_payment),
+    paidOrders: num(st.paid_orders),
+    attention: (st.attention ?? []).map((a) => ({
+      id: a.id,
+      name: nameOf(a.name, a.number),
+      reason: a.reason ? (REASON_LABEL[a.reason] ?? a.reason) : "needs your input",
+      waiting: agoLabel(a.since),
+    })),
+    pipeline: STAGES.map((stage) => ({ stage, label: STAGE_LABEL[stage], count: num(st.pipeline?.[stage]) })),
+    revenueThisWeek,
+    revenueChangePct: pctChange(revenueThisWeek, revenueLastWeek),
+    conversionThisWeekPct,
+    conversionChangePts:
+      conversionThisWeekPct !== null && conversionLastWeekPct !== null ? conversionThisWeekPct - conversionLastWeekPct : null,
+    avgFirstReplySeconds: numOrNull(st.avg_first_reply_seconds),
+    assistantSharePct: pct(num(st.bot_this), num(st.outbound_this)),
+    assistantShareLastWeekPct: pct(num(st.bot_last), num(st.outbound_last)),
+    messagesGrowthPct: pctChange(num(st.customer_msgs_this), num(st.customer_msgs_last)),
+    topOrdersThisWeek: (st.top_orders ?? []).map((o) => ({ name: nameOf(o.name, o.number), amount: num(o.amount) })),
+    avgOrderValueThisWeek: num(st.paid_count_this) ? revenueThisWeek / num(st.paid_count_this) : null,
+    followUpsDueToday: { feedback: num(st.due_today_feedback), reorder: num(st.due_today_reorder) },
+    feedbackAverage: numOrNull(st.feedback_avg),
+    feedbackCount: num(st.feedback_count),
+    activity: (st.activity ?? []).map((m) => ({
+      id: m.id,
+      name: nameOf(m.name, m.number),
+      action: ACTION_LABEL[m.source],
+      snippet: m.snippet ? (m.snippet.length > 60 ? `${m.snippet.slice(0, 60)}…` : m.snippet) : null,
+      time: agoLabel(m.at),
+      source: m.source,
+    })),
+  };
+}
+
+/**
+ * Everything the dashboard overview needs. The numbers come from one SQL function, so they stay right
+ * however many messages there are. Falls back to the older JavaScript version if that function is not
+ * there yet (migration 0016 not applied), so an out-of-date database shows a dashboard, not an error.
+ */
+export async function getDashboardData(supabase: SupabaseClient): Promise<DashboardData> {
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const startOfTomorrow = new Date(startOfToday.getTime() + DAY_MS);
+
+  const { data, error } = await supabase.rpc("dashboard_stats", {
+    p_today_start: startOfToday.toISOString(),
+    p_tomorrow_start: startOfTomorrow.toISOString(),
+  });
+  if (error || !data) {
+    log.warn("dashboard.stats_fallback", {}, error ?? new Error("no data"));
+    return getDashboardDataFromRows(supabase);
+  }
+  return dashboardFromStats(data as DashboardStats);
 }

@@ -1,8 +1,7 @@
 import { after, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyWebhook } from "@/lib/webhook-auth";
-import { drainInboundJobs } from "@/lib/inbound-queue";
-import { handleInboundJob, ingestPayload, type WaWebhookPayload } from "@/lib/whatsapp";
+import { ingestPayload, runInboundWork, type WaWebhookPayload } from "@/lib/whatsapp";
 
 export const runtime = "nodejs";
 // The background work after the reply (AI and sending) runs inside this limit.
@@ -58,8 +57,9 @@ export async function POST(req: NextRequest) {
   // Store the messages and queue the work BEFORE answering. If this fails, answer 500 so Meta sends
   // the delivery again: the messages are deduplicated, and one nobody has answered yet is queued
   // again. (Answering 200 first and storing later, as before, lost the message on a crash.)
+  let inline: Awaited<ReturnType<typeof ingestPayload>>["inline"];
   try {
-    await ingestPayload(admin, payload);
+    ({ inline } = await ingestPayload(admin, payload));
   } catch (err) {
     console.error("Webhook ingest failed", err);
     return new Response("Temporary failure", { status: 500 });
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
   // job stays in the queue and is retried (here on the next webhook, or by the cron sweeper).
   after(async () => {
     try {
-      await drainInboundJobs(admin, (job) => handleInboundJob(admin, job), { budgetMs: 45_000 });
+      await runInboundWork(admin, inline, { budgetMs: 45_000 });
     } catch (err) {
       console.error("Inbound worker failed", err);
     }

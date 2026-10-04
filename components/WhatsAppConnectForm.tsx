@@ -8,7 +8,7 @@ import {
   ShieldQuestion,
 } from "lucide-react";
 import { toast } from "sonner";
-import { saveWhatsAppConnection } from "@/app/dashboard/actions";
+import { saveWhatsAppConnection } from "@/app/dashboard/actions/settings";
 import { Button } from "@/components/ui/button";
 import {
   Card,

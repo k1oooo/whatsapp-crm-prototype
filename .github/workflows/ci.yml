@@ -23,3 +23,29 @@ jobs:
       - run: pnpm test
       # Fails the build on a known high or critical advisory in a production dependency.
       - run: pnpm audit --prod --audit-level high
+
+  database:
+    # Runs every migration on an empty Postgres, then the row level security, queue and dashboard tests.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/test-db.sh
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+      # lib/db-types.ts is generated from the migrations; this fails if someone changed a migration
+      # without regenerating it (node scripts/gen-db-types.mjs).
+      - run: node scripts/gen-db-types.mjs --check
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/crm_test

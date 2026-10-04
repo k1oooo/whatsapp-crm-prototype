@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { FormState } from "@/app/dashboard/actions";
+import type { FormState } from "@/app/dashboard/actions/shared";
+import type { Json } from "@/lib/db-types";
 import {
   DEFAULT_FEEDBACK_TEXT,
   DEFAULT_REORDER_TEXT,
@@ -69,7 +70,7 @@ export async function saveFollowUpSettings(_prev: FormState, formData: FormData)
     language: text("language") || "ms",
   };
 
-  const { error } = await supabase.from("businesses").update({ follow_up_settings: settings }).eq("id", businessId);
+  const { error } = await supabase.from("businesses").update({ follow_up_settings: settings as unknown as Json }).eq("id", businessId);
   if (error) return { error: "Could not save. Is migration 0007 applied?" };
 
   revalidatePath("/dashboard/follow-ups");

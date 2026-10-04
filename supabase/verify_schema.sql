@@ -45,6 +45,7 @@ with expected(table_name, column_name) as (values
   ('follow_ups','due_at'),
   ('follow_ups','sent_at'),
   ('follow_ups','detail'),
+  ('follow_ups','claimed_at'),
   ('follow_ups','campaign'),
   ('follow_ups','template_name'),
   ('follow_ups','body'),
