@@ -1,8 +1,9 @@
 // The assistant: answers the customer's latest message, or hands the chat to the owner.
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { HOLDING_FALLBACK, runAgent, hasPlaceholder, usesUnknownAmount, type AgentResult, type OrderStatus, type ChatMessage, type LeadFields } from "@/lib/ai";
+import { HOLDING_FALLBACK, extractOrderLines, findPlaceholder, hasPlaceholder, runAgent, usesUnknownAmount, type AgentResult, type OrderStatus, type ChatMessage, type LeadFields } from "@/lib/ai";
 import { getBusinessKnowledge } from "@/lib/knowledge";
-import { computeOrder, computedAmounts, fillTotal, hasUnverifiedAmount, parseStoredLines, type OrderLine } from "@/lib/order";
+import { log } from "@/lib/log";
+import { computeOrder, computedAmounts, fillTotal, hasUnverifiedAmount, parseStoredLines, stripItemCodes, type OrderLine } from "@/lib/order";
 import { sendWhatsAppText } from "@/lib/send";
 import { type BusinessInfo } from "@/lib/whatsapp/types";
 import { mergeWithLocks } from "@/lib/whatsapp/lead";
@@ -135,6 +136,7 @@ export async function autoReply(db: SupabaseClient, business: BusinessInfo, lead
         },
         messages,
         catalog,
+        haveSavedLines: storedLines.length > 0 && storedTotal != null,
       });
     } catch (err) {
       // Better to stay silent and tell the owner than to send a broken message.
@@ -160,18 +162,39 @@ export async function autoReply(db: SupabaseClient, business: BusinessInfo, lead
   let orderLines: OrderLine[] | null = null;
   let orderTotal: number | null = null;
   if (result.action === "reply" && priced) {
-    const sent = result.order.lines ?? [];
     const needsTotal = result.order.status === "awaiting_confirmation" || result.order.status === "confirmed";
-    if (sent.length > 0) {
-      const computed = computeOrder(sent, catalog);
-      if (computed.ok) {
-        orderLines = computed.lines;
-        orderTotal = computed.totalMyr;
-      } else {
-        console.warn("Could not price the AI's order lines", leadId, computed.error);
-        handBack("The assistant could not work out this order's total from your menu. Please check the chat.");
+    const haveStored = storedLines.length > 0 && storedTotal != null;
+    const aiSent = result.order.lines ?? [];
+    let computed = aiSent.length > 0 ? computeOrder(aiSent, catalog) : null;
+
+    // The agent summarised an order but sent no usable lines (models forget the extra field now and
+    // then), or sent lines that are not on the menu. Ask once, narrowly, before bothering the owner.
+    // When it sent none and the order has not changed (a thank-you, an "ok"), the stored lines stand.
+    const unusable = computed ? !computed.ok : !haveStored && needsTotal;
+    if (unusable) {
+      try {
+        const again = await extractOrderLines(messages, catalog);
+        computed = again.length > 0 ? computeOrder(again, catalog) : null;
+        log.info(computed?.ok ? "order.lines_repaired" : "order.lines_missing", {
+          leadId,
+          status: result.order.status,
+          agentSentLines: aiSent.length,
+          repairedLines: again.length,
+        });
+      } catch (err) {
+        computed = null;
+        log.warn("order.lines_repair_failed", { leadId }, err);
       }
-    } else if (storedLines.length > 0 && storedTotal != null) {
+    }
+
+    if (computed?.ok) {
+      orderLines = computed.lines;
+      orderTotal = computed.totalMyr;
+    } else if (aiSent.length > 0 || computed) {
+      // It gave lines we could not use and the second question did not fix them. Never fall back to the
+      // stored lines here: the customer may have changed the order, and the old total would be wrong.
+      handBack("The assistant could not work out this order's total from your menu. Please check the chat.");
+    } else if (haveStored) {
       // A thank-you after confirming, or a customer saying "ok": the order has not changed.
       orderLines = storedLines;
       orderTotal = storedTotal;
@@ -187,6 +210,14 @@ export async function autoReply(db: SupabaseClient, business: BusinessInfo, lead
       if (result.order.summary) result.order = { ...result.order, summary: fillTotal(result.order.summary, orderTotal).reply };
     }
   }
+  // The menu text the model reads shows item codes. They are never for the customer, or the owner's summary.
+  if (result.action === "reply" && priced) {
+    result = {
+      ...result,
+      reply: stripItemCodes(result.reply),
+      order: { ...result.order, summary: result.order.summary ? stripItemCodes(result.order.summary) : result.order.summary },
+    };
+  }
 
   // Safety net: no invented prices, and no empty replies.
   const chatText = messages.map((m) => m.body).join("\n");
@@ -194,14 +225,15 @@ export async function autoReply(db: SupabaseClient, business: BusinessInfo, lead
     priced
       ? hasUnverifiedAmount(reply, facts, chatText, orderLines ? computedAmounts(orderLines, orderTotal) : [])
       : usesUnknownAmount(reply, `${facts}\n${chatText}`);
-  if (result.action === "reply" && hasPlaceholder(result.reply)) {
+  const placeholder = result.action === "reply" ? findPlaceholder(result.reply) : null;
+  if (placeholder) {
     result = {
       ...result,
       action: "escalate",
       reason: "unsure",
       reply: HOLDING_FALLBACK,
       order: { status: "none", summary: null },
-      note: "Your Settings still have a placeholder like [BANK NAME]. Please finish them, then answer this customer.",
+      note: `The assistant's reply contained "${placeholder}", which looks like text that was never filled in. Look for text in [square brackets] in AI Settings and the Knowledge base, fix it, then answer this customer.`,
     };
   } else if (result.action === "reply" && (!result.reply || unverifiedPrice(result.reply))) {
     result = {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { hasPlaceholder, mergeLead, usesUnknownAmount, type LeadFields } from "@/lib/ai";
 
 describe("usesUnknownAmount", () => {
@@ -85,7 +85,8 @@ describe("mergeLead", () => {
   });
 });
 
-import { agentOutputSchema, extractJson } from "@/lib/ai";
+import { agentOutputSchema, extractJson, extractOrderLines, findPlaceholder } from "@/lib/ai";
+import { buildCatalog } from "@/lib/order";
 
 describe("extractJson", () => {
   it("reads a plain object", () => {
@@ -154,5 +155,53 @@ describe("agentOutputSchema", () => {
   it("refuses more order lines than an order can have", () => {
     const lines = Array.from({ length: 21 }, () => ({ item: "P1", qty: 1 }));
     expect(agentOutputSchema.parse({ order: { lines } }).order.lines).toEqual([]);
+  });
+});
+
+describe("extractOrderLines", () => {
+  const catalog = buildCatalog([
+    { id: "a", title: "Cupcakes", price_myr: 3 },
+    { id: "b", title: "Delivery", price_myr: 10 },
+  ]);
+  const chat = [{ direction: "in" as const, body: "nak 12 cupcake hantar Shah Alam", sentAt: new Date().toISOString() }];
+
+  function modelSays(content: string) {
+    process.env.AI_API_KEY = "test-key";
+    const f = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content } }] }), { status: 200 }));
+    vi.stubGlobal("fetch", f);
+    return f;
+  }
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.AI_API_KEY;
+  });
+
+  it("reads codes and quantities, and never shows the model any price", async () => {
+    const f = modelSays('{"lines":[{"item":"P1","qty":12},{"item":"P2","qty":1}]}');
+    expect(await extractOrderLines(chat, catalog)).toEqual([{ item: "P1", qty: 12 }, { item: "P2", qty: 1 }]);
+    const sent = String((f.mock.calls[0] as unknown as [string, RequestInit])[1].body);
+    expect(sent).toContain("P1: Cupcakes");
+    expect(sent).not.toMatch(/RM\d|price_myr/);
+  });
+
+  it("returns nothing for an answer it cannot trust", async () => {
+    modelSays('{"lines":[{"item":"P1","qty":-4}]}');
+    expect(await extractOrderLines(chat, catalog)).toEqual([]);
+  });
+
+  it("returns nothing in mock mode or for a menu with no priced items, without calling out", async () => {
+    const f = vi.fn();
+    vi.stubGlobal("fetch", f);
+    expect(await extractOrderLines(chat, catalog)).toEqual([]);
+    process.env.AI_API_KEY = "k";
+    expect(await extractOrderLines(chat, [])).toEqual([]);
+    expect(f).not.toHaveBeenCalled();
+  });
+});
+
+describe("findPlaceholder", () => {
+  it("names the placeholder it found", () => {
+    expect(findPlaceholder("Please transfer to [BANK NAME] ya")).toBe("[BANK NAME]");
+    expect(findPlaceholder("All good")).toBeNull();
   });
 });

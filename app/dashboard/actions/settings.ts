@@ -3,6 +3,7 @@
 // Settings: the WhatsApp connection, the assistant's settings and its on/off switch.
 import { revalidatePath } from "next/cache";
 import type { TablesUpdate } from "@/lib/db-types";
+import { log } from "@/lib/log";
 import { createClient } from "@/lib/supabase/server";
 import { encryptSecret } from "@/lib/secrets";
 import { resolveToken, sendMode } from "@/lib/send";
@@ -47,41 +48,25 @@ export async function saveWhatsAppConnection(
   // The access token and app secret are stored encrypted. The verify token stays readable: Meta
   // sends it back in the clear during webhook setup and it is looked up by value.
   try {
-    if (appSecret !== undefined)
-      update.wa_app_secret =
-        appSecret === null ? null : encryptSecret(appSecret);
-    if (accessToken !== undefined)
-      update.wa_access_token =
-        accessToken === null ? null : encryptSecret(accessToken);
+    if (appSecret !== undefined) update.wa_app_secret = appSecret === null ? null : encryptSecret(appSecret);
+    if (accessToken !== undefined) update.wa_access_token = accessToken === null ? null : encryptSecret(accessToken);
   } catch (err) {
     console.error("Could not encrypt WhatsApp credentials", err);
-    return {
-      error:
-        "This server is not set up to store WhatsApp credentials safely yet (WA_SECRETS_KEY is missing).",
-    };
+    return { error: "This server is not set up to store WhatsApp credentials safely yet (WA_SECRETS_KEY is missing)." };
   }
   if (verifyToken !== undefined) update.wa_verify_token = verifyToken;
 
   const { data: existing } = await supabase
     .from("businesses")
-    .select(
-      "wa_phone_number_id, wa_app_secret, wa_access_token, wa_verify_token",
-    )
+    .select("wa_phone_number_id, wa_app_secret, wa_access_token, wa_verify_token")
     .eq("owner_id", user.id)
     .maybeSingle();
 
   // What the business will have saved once this form is applied.
-  const after = (
-    key: "wa_app_secret" | "wa_access_token" | "wa_verify_token",
-  ) =>
-    (key in update
-      ? update[key]
-      : (existing?.[key] as string | null | undefined)) ?? null;
+  const after = (key: "wa_app_secret" | "wa_access_token" | "wa_verify_token") =>
+    (key in update ? update[key] : (existing?.[key] as string | null | undefined)) ?? null;
   // For the live check: the token typed just now, or the one already stored (resolveToken decrypts it).
-  const effectiveToken =
-    accessToken !== undefined
-      ? accessToken
-      : ((existing?.wa_access_token as string | null | undefined) ?? null);
+  const effectiveToken = accessToken !== undefined ? accessToken : (existing?.wa_access_token as string | null | undefined) ?? null;
   const hasToken = !!after("wa_access_token");
 
   // A business with its own Meta credentials is verified only against its own app secret. Without
@@ -95,8 +80,7 @@ export async function saveWhatsAppConnection(
 
   // Prove the owner can really use this number. Skipped in test mode, where there is no live token.
   const tokenToCheck = resolveToken(effectiveToken);
-  const changed =
-    phoneNumberId !== existing?.wa_phone_number_id || accessToken !== undefined;
+  const changed = phoneNumberId !== existing?.wa_phone_number_id || accessToken !== undefined;
   if (changed && tokenToCheck && sendMode(effectiveToken) === "live") {
     const check = await checkPhoneNumberAccess(phoneNumberId, tokenToCheck);
     if (!check.ok) return { error: check.error };
@@ -126,8 +110,12 @@ export async function saveWhatsAppConnection(
     }
     return { error: "Could not save. Try again." };
   }
-  if (!saved || saved.length === 0) return { error: NOT_SAVED };
+  if (!saved || saved.length === 0) {
+    log.warn("settings.not_saved", { form: "whatsapp_connection", userId: user.id });
+    return { error: NOT_SAVED };
+  }
 
+  log.info("settings.saved", { form: "whatsapp_connection", businessId: saved[0].id });
   revalidatePath("/dashboard", "layout");
   return { ok: true };
 }
@@ -167,7 +155,11 @@ export async function saveSettings(
     console.error("saveSettings failed", error.code, error.message);
     return { error: `Could not save: ${error.message}` };
   }
-  if (!saved || saved.length === 0) return { error: NOT_SAVED };
+  if (!saved || saved.length === 0) {
+    log.warn("settings.not_saved", { form: "ai_settings", userId: user.id });
+    return { error: NOT_SAVED };
+  }
+  log.info("settings.saved", { form: "ai_settings", businessId: saved[0].id });
   revalidatePath("/dashboard", "layout");
   return { ok: true };
 }
@@ -189,7 +181,11 @@ export async function toggleAutoReply(next: boolean): Promise<FormState> {
     console.error("toggleAutoReply failed", error.code, error.message);
     return { error: `Could not change the assistant: ${error.message}` };
   }
-  if (!saved || saved.length === 0) return { error: NOT_SAVED };
+  if (!saved || saved.length === 0) {
+    log.warn("settings.not_saved", { form: "assistant_toggle", userId: user.id });
+    return { error: NOT_SAVED };
+  }
+  log.info("settings.saved", { form: "assistant_toggle", businessId: saved[0].id, autoReply: next });
 
   revalidatePath("/dashboard", "layout");
   return { ok: true };

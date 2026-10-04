@@ -12,7 +12,7 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => db }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
-import { saveWhatsAppConnection } from "@/app/dashboard/actions/settings";
+import { saveSettings, saveWhatsAppConnection, toggleAutoReply } from "@/app/dashboard/actions/settings";
 import { confirmPayment, sendDraftReply } from "@/app/dashboard/actions/replies";
 
 const noState = {} as never;
@@ -239,5 +239,40 @@ describe("credentials at rest", () => {
     expect(res.error).toMatch(/WA_SECRETS_KEY/);
     expect(db._db.businesses[0].wa_access_token).toBeNull();
     vi.unstubAllEnvs();
+  });
+});
+
+describe("a save that changes nothing is reported, not shown as saved", () => {
+  // The signed-in user (owner-1) owns no business: row level security would match no rows.
+  const orphan = () => {
+    db._db.businesses[0].owner_id = "someone-else";
+  };
+
+  it("saveWhatsAppConnection", async () => {
+    orphan();
+    const res = await saveWhatsAppConnection(noState, form({ wa_phone_number_id: "TEST_PHONE_NUMBER_ID" }));
+    expect(res.ok).toBeUndefined();
+    expect(res.error).toMatch(/nothing was saved/i);
+    expect(db._db.businesses[0].wa_phone_number_id).toBe("123456789012345");
+  });
+
+  it("saveSettings", async () => {
+    orphan();
+    const res = await saveSettings(noState, form({ auto_reply: "on" }));
+    expect(res.error).toMatch(/nothing was saved/i);
+  });
+
+  it("toggleAutoReply", async () => {
+    orphan();
+    const res = await toggleAutoReply(true);
+    expect(res.error).toMatch(/nothing was saved/i);
+  });
+
+  it("still saves normally for the owner", async () => {
+    const a = await saveWhatsAppConnection(noState, form({ wa_phone_number_id: "TEST_PHONE_NUMBER_ID" }));
+    const b = await saveSettings(noState, form({ auto_reply: "on", tone_notes: "friendly" }));
+    const c = await toggleAutoReply(false);
+    expect([a.ok, b.ok, c.ok]).toEqual([true, true, true]);
+    expect(db._db.businesses[0]).toMatchObject({ wa_phone_number_id: "TEST_PHONE_NUMBER_ID", tone_notes: "friendly", auto_reply: false });
   });
 });

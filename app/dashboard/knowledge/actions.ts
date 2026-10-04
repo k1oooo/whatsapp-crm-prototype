@@ -6,7 +6,7 @@ import { extractText, getDocumentProxy } from "unpdf";
 import {
   cleanPdfText,
   clipText,
-  compileFacts,
+  getBusinessKnowledge,
   KB_CATEGORIES,
   MAX_DOC_CHARS,
   MAX_DOCS,
@@ -17,7 +17,6 @@ import {
   MAX_PDF_BYTES,
   MAX_PRICE_MYR,
   type KbCategory,
-  type KbEntry,
 } from "@/lib/knowledge";
 import { parsePrice } from "@/lib/order";
 import { createClient } from "@/lib/supabase/server";
@@ -178,22 +177,9 @@ export async function previewFacts(): Promise<{ text: string } | { error: string
   const businessId = await myBusinessId(supabase);
   if (!businessId) return { error: "Please sign in again." };
 
-  const [{ data: rows, error }, { data: biz }, { data: docs }] = await Promise.all([
-    supabase
-      .from("knowledge_entries")
-      .select("id, category, title, content")
-      .eq("business_id", businessId)
-      .order("created_at", { ascending: true }),
-    supabase.from("businesses").select("business_facts").eq("id", businessId).maybeSingle(),
-    supabase
-      .from("knowledge_documents")
-      .select("file_name, content")
-      .eq("business_id", businessId)
-      .order("created_at", { ascending: true }),
-  ]);
-  if (error) return { error: "Is migration 0008 applied?" };
-
-  return { text: compileFacts((rows ?? []) as KbEntry[], biz?.business_facts ?? null, docs ?? []) };
+  // The same function the assistant uses, so the preview is exactly what it reads (item codes included).
+  const { facts } = await getBusinessKnowledge(supabase, businessId);
+  return { text: facts };
 }
 
 /** Pull the text out of a PDF. Returns an error message (a string) when it can't be used. */

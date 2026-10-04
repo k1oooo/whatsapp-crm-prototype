@@ -353,8 +353,15 @@ export function usesUnknownAmount(reply: string, allowedText: string): boolean {
 }
 
 /** Payment details in the settings that still say [BANK NAME] or similar must never reach a customer. */
+const PLACEHOLDER = /\[[A-Za-z][A-Za-z0-9 _-]{1,40}\]/;
+
+/** The first [LIKE THIS] in a reply, or null. */
+export function findPlaceholder(reply: string): string | null {
+  return reply.match(PLACEHOLDER)?.[0] ?? null;
+}
+
 export function hasPlaceholder(reply: string): boolean {
-  return /\[[A-Za-z][A-Za-z0-9 _-]{1,40}\]/.test(reply);
+  return PLACEHOLDER.test(reply);
 }
 
 const AGENT_LEAD_RULES = `The "lead" object has these keys: name (string or null), need (short phrase or null), budget_myr (integer RM the CUSTOMER says they can spend, or null), quoted_price_myr (integer RM price given to the customer, or null), deadline (YYYY-MM-DD or null), stage, language.
@@ -366,16 +373,30 @@ const AGENT_LEAD_RULES = `The "lead" object has these keys: name (string or null
 
 const LEGACY_TOTAL_RULE =
   "You may multiply and add prices from the facts to get the total (for example 12 x RM3 = RM36, plus RM10 delivery).";
-const PRICED_TOTAL_RULE = `Items marked with a code such as [P1] have a fixed price. NEVER add up or multiply prices yourself. Write the exact text ${TOTAL_TOKEN} where the total belongs, and the system puts in the correct amount. You may state one item's own price, such as "RM3 each". Do not write any other amount.`;
-const ORDER_LINES_DOC = ` It also has "lines": a list of {"item": "<code>", "qty": <whole number>} with one entry for every coded item in the order, including the delivery fee if it has a code. Send the full list in every message from the order summary onward. Use [] when there is no order yet.`;
+const PRICED_TOTAL_RULE = `Items marked with a code such as [P1] have a fixed price. NEVER add up or multiply prices yourself. Write the exact text ${TOTAL_TOKEN} where the total belongs, and the system puts in the correct amount. You may state one item's own price, such as "RM3 each". Do not write any other amount. The codes are only for the lines list: NEVER write a code such as [P1] in the reply or in the summary, say the item's name instead.`;
+const ORDER_LINES_DOC = ` It also has "lines": a list of {"item": "<code>", "qty": <whole number>}, for example [{"item":"P1","qty":12}], with one entry for every coded item in the order, including the delivery fee if it has a code. "lines" is REQUIRED whenever status is "awaiting_confirmation" or "confirmed": a summary without it cannot be priced. Send the full list in every message from the order summary onward. Use [] only when there is no order yet.`;
 
 const ORDER_STATUS_VALUES = ["none", "collecting", "awaiting_confirmation", "confirmed"] as const;
 const REASON_VALUES = ["discount", "stock", "payment", "unsure"] as const;
 
 const orderLineSchema = z.object({
-  item: z.string().trim().min(1).max(12),
+  // A code such as "P1", or (accepted too) the item's exact name.
+  item: z.string().trim().min(1).max(100),
   qty: z.coerce.number().int().min(1).max(MAX_LINE_QTY),
 });
+
+/** Models vary the key names. Accept the usual ones, then validate strictly. */
+function normalizeLines(v: unknown): unknown {
+  if (!Array.isArray(v)) return v;
+  return v.map((l) => {
+    if (!l || typeof l !== "object") return l;
+    const o = l as Record<string, unknown>;
+    return {
+      item: o.item ?? o.code ?? o.item_code ?? o.item_id ?? o.id ?? o.name ?? o.title,
+      qty: o.qty ?? o.quantity ?? o.count ?? o.amount,
+    };
+  });
+}
 
 /** The shape the agent must return. Lenient on text, strict on anything that touches money. */
 export const agentOutputSchema = z.object({
@@ -388,11 +409,37 @@ export const agentOutputSchema = z.object({
     .object({
       status: z.enum(ORDER_STATUS_VALUES).catch("none"),
       summary: z.string().catch("").transform((v) => v.trim().slice(0, 500) || null),
-      lines: z.array(orderLineSchema).max(MAX_ORDER_LINES).catch([]),
+      lines: z.preprocess(normalizeLines, z.array(orderLineSchema).max(MAX_ORDER_LINES)).catch([]),
     })
     .catch({ status: "none", summary: null, lines: [] }),
   lead: z.record(z.string(), z.unknown()).catch({}),
 });
+
+const REPAIR_SYSTEM = (menu: string) => `You turn a WhatsApp order chat into a list of order lines.
+Use ONLY these items, by their code:
+${menu}
+
+Reply with ONLY a JSON object: {"lines":[{"item":"<code>","qty":<whole number>}]}
+- One entry per item the customer asked for, with the quantity they asked for.
+- Add a delivery item only if the customer asked for delivery and it is in the list.
+- If the customer has not ordered anything from the list, reply {"lines":[]}.
+- Never write a price. Never invent a code.`;
+
+/**
+ * Second chance for an order the agent summarised without usable lines (models forget the extra
+ * "lines" field now and then). One narrow question about the same chat, answered with codes and
+ * quantities only. The server still prices the result, so nothing here can put a wrong total in front
+ * of a customer. Returns [] when the chat has no order or the answer cannot be trusted.
+ */
+export async function extractOrderLines(messages: ChatMessage[], catalog: CatalogItem[]): Promise<OrderLineInput[]> {
+  if (provider() === "mock" || catalog.length === 0) return [];
+  const menu = catalog.map((c) => `${c.code}: ${c.title}`).join("\n");
+  const raw = await completeJson("extract", REPAIR_SYSTEM(menu), transcript(messages));
+  return z
+    .object({ lines: z.array(orderLineSchema).max(MAX_ORDER_LINES).catch([]) })
+    .catch({ lines: [] })
+    .parse(raw).lines;
+}
 
 export async function runAgent(args: {
   facts: string | null;
@@ -402,6 +449,8 @@ export async function runAgent(args: {
   messages: ChatMessage[];
   /** Priced menu items. When there are any, the server computes totals and the AI must not. */
   catalog?: CatalogItem[];
+  /** True when the order's lines are already saved, so a bare "ok, confirmed" needs none of its own. */
+  haveSavedLines?: boolean;
 }): Promise<AgentResult> {
   const { facts, toneNotes, lead, messages } = args;
   const priced = (args.catalog?.length ?? 0) > 0;
@@ -468,7 +517,33 @@ ${transcript(messages, true)}`;
 
   // Every field has a safe default, so a sloppy reply degrades to "hand over to the owner" instead of
   // putting bad data in the database. Order lines are all or nothing: one bad line drops the lot.
-  const parsed = agentOutputSchema.parse(raw);
+  let parsed = agentOutputSchema.parse(raw);
+
+  // An order summary on a priced menu cannot be priced without its lines. Models forget them now and
+  // then, so ask once more before giving up and handing the chat to the owner.
+  const needsLines = (r: typeof parsed) =>
+    priced &&
+    r.action === "reply" &&
+    (r.order.status === "awaiting_confirmation" || (r.order.status === "confirmed" && !args.haveSavedLines));
+  if (needsLines(parsed) && parsed.order.lines.length === 0) {
+    const sent = (raw.order as { lines?: unknown } | undefined)?.lines;
+    console.warn("The assistant described an order without usable lines, asking once more", {
+      status: parsed.order.status,
+      lines: JSON.stringify(sent ?? null).slice(0, 200),
+    });
+    try {
+      const again = agentOutputSchema.parse(
+        await completeJson(
+          "agent",
+          system,
+          `${user}\n\nYour last reply described an order, but "order.lines" was missing or unreadable. Reply again with the same JSON, and list every item in "order.lines" as {"item":"P1","qty":12} using the codes in the business facts.`,
+        ),
+      );
+      if (again.order.lines.length > 0) parsed = again;
+    } catch (err) {
+      console.warn("Asking for order lines again failed", err instanceof Error ? err.message : err);
+    }
+  }
   const action = parsed.action;
 
   return {

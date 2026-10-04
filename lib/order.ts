@@ -69,9 +69,17 @@ export function computeOrder(lines: OrderLineInput[], catalog: CatalogItem[]): C
   if (lines.length > MAX_ORDER_LINES) return { ok: false, error: "too many order lines" };
 
   const byCode = new Map(catalog.map((c) => [c.code.toUpperCase(), c]));
+  // Models sometimes write the item's name instead of its code. An exact name that matches exactly one
+  // menu item is just as unambiguous, and the price still comes from the menu either way.
+  const byTitle = new Map<string, CatalogItem | null>();
+  for (const c of catalog) {
+    const key = c.title.trim().toLowerCase();
+    byTitle.set(key, byTitle.has(key) ? null : c);
+  }
   const merged = new Map<string, OrderLine>();
   for (const l of lines) {
-    const item = byCode.get(String(l.item).trim().toUpperCase());
+    const ref = String(l.item).trim();
+    const item = byCode.get(ref.toUpperCase()) ?? byTitle.get(ref.toLowerCase()) ?? undefined;
     if (!item) return { ok: false, error: `unknown item "${l.item}"` };
     if (!Number.isInteger(l.qty) || l.qty < 1 || l.qty > MAX_LINE_QTY) {
       return { ok: false, error: `bad quantity for ${item.title}` };
@@ -116,6 +124,20 @@ export function computedAmounts(lines: OrderLine[], totalMyr: number | null): nu
   }
   if (totalMyr != null) set.add(round2(totalMyr));
   return [...set];
+}
+
+/**
+ * Item codes such as [P1] are for the lines list only. The menu text the model reads shows them, so it
+ * sometimes copies one into its reply ("12 x Cupcakes [P1]"). Take every one out before a customer
+ * sees it. Any [P<number>] goes, not just codes on this menu: they are our own namespace, and a made up
+ * [P9] must not reach a customer either.
+ */
+export function stripItemCodes(text: string): string {
+  return text
+    .replace(/[ \t]*\[P\d{1,3}\]/gi, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]+([.,!?])/g, "$1")
+    .trim();
 }
 
 /** Replace {TOTAL} with the real amount. `ok` is false if the reply asks for a total we do not have. */

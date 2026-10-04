@@ -4,10 +4,20 @@ import { HOLDING_FALLBACK } from "@/lib/ai";
 
 // The agent is the one thing replaced here: each test decides what the AI "said", and everything
 // after it (pricing, the safety net, saving, sending, the queue) is the real code.
-const agent = vi.hoisted(() => ({ next: null as unknown }));
+const agent = vi.hoisted(() => ({
+  next: null as unknown,
+  /** What the narrow second question returns, or an Error to make it fail. */
+  repair: [] as { item: string; qty: number }[] | Error,
+  repairCalls: 0,
+}));
 vi.mock("@/lib/ai", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/ai")>()),
   runAgent: vi.fn(async () => agent.next),
+  extractOrderLines: vi.fn(async () => {
+    agent.repairCalls++;
+    if (agent.repair instanceof Error) throw agent.repair;
+    return agent.repair;
+  }),
 }));
 
 import { drainInboundJobs } from "@/lib/inbound-queue";
@@ -56,6 +66,8 @@ const botMessages = (db: ReturnType<typeof makeDb>) => db._db.messages.filter((m
 const lead = (db: ReturnType<typeof makeDb>) => db._db.leads[0];
 
 beforeEach(() => {
+  agent.repair = [];
+  agent.repairCalls = 0;
   delete process.env.AI_API_KEY;
   delete process.env.ANTHROPIC_API_KEY;
   delete process.env.WHATSAPP_SEND_MODE;
@@ -156,6 +168,119 @@ describe("priced orders: the server computes the total", () => {
     await send(db, "berapa harga cupcake?");
     expect(botMessages(db)[0].body).toBe("Cupcake RM3 satu ya.");
     expect(lead(db).order_total_myr).toBeNull();
+  });
+});
+
+describe("item codes never reach the customer", () => {
+  it("REGRESSION: a code the model copies into its reply is removed, and the chat is not handed over", async () => {
+    // Seen in practice: the menu text shows "Cupcakes [P1]", the model repeated it, and the placeholder
+    // check mistook the code for an unfilled [BANK NAME] and handed the chat to the owner.
+    const db = makeDb();
+    said({
+      reply: "Order summary: 12 x Cupcakes [P1], chocolate, esok 4pm, atas nama mike. Jumlah {TOTAL}. Betul ke?",
+      status: "awaiting_confirmation",
+      summary: "12 x Cupcakes [P1], chocolate, esok 4pm",
+      lines: [{ item: "P1", qty: 12 }],
+    });
+    await send(db, "mike");
+
+    const sent = botMessages(db)[0].body as string;
+    expect(sent).toBe("Order summary: 12 x Cupcakes, chocolate, esok 4pm, atas nama mike. Jumlah RM36. Betul ke?");
+    expect(sent).not.toMatch(/\[P\d+\]/);
+    expect(lead(db).pending_decision).toBeFalsy();
+    expect(lead(db).order_summary).toBe("12 x Cupcakes, chocolate, esok 4pm");
+    expect(lead(db).order_total_myr).toBe(36);
+  });
+
+  it("removes a made up code too", async () => {
+    const db = makeDb();
+    said({ reply: "Boleh kak, Cupcakes [P9] RM3 each.", status: "none", lines: [] });
+    await send(db, "berapa cupcake?");
+    expect(botMessages(db)[0].body).toBe("Boleh kak, Cupcakes RM3 each.");
+  });
+
+  it("a real unfilled placeholder is still caught, and the note says which one", async () => {
+    const db = makeDb();
+    said({ reply: "Sila transfer ke [BANK NAME] ya.", status: "none", lines: [] });
+    await send(db, "macam mana bayar?");
+    expect(botMessages(db).every((m) => !String(m.body).includes("[BANK NAME]"))).toBe(true);
+    expect(lead(db).pending_decision).toBe(true);
+    expect(String(lead(db).handoff_note)).toContain("[BANK NAME]");
+  });
+});
+
+describe("when the agent sends no usable order lines", () => {
+  it("REGRESSION: asks once more instead of handing a plain order to the owner", async () => {
+    const db = makeDb();
+    // What happened in practice: a complete order summary, and an empty lines list.
+    said({ reply: "Total {TOTAL} ya. Betul ke?", status: "awaiting_confirmation", summary: "12 chocolate cupcakes, esok 2pm", lines: [] });
+    agent.repair = [{ item: "P1", qty: 12 }];
+    await send(db, "choc pickup esok 2pm atas nama faiz");
+
+    expect(agent.repairCalls).toBe(1);
+    expect(botMessages(db)[0].body).toContain("Total RM36 ya");
+    expect(lead(db).order_total_myr).toBe(36);
+    expect(lead(db).pending_decision).toBeFalsy();
+  });
+
+  it("repairs lines that were not on the menu too", async () => {
+    const db = makeDb();
+    said({ reply: "Total {TOTAL}", status: "awaiting_confirmation", lines: [{ item: "cupcakes", qty: 12 }] });
+    agent.repair = [{ item: "P1", qty: 12 }];
+    await send(db, "nak 12 cupcake");
+    expect(botMessages(db)[0].body).toBe("Total RM36");
+  });
+
+  it("still hands over when the second question gives nothing usable", async () => {
+    const db = makeDb();
+    said({ reply: "Total {TOTAL}", status: "awaiting_confirmation", lines: [] });
+    agent.repair = [];
+    await send(db, "nak 12 cupcake");
+    expect(agent.repairCalls).toBe(1);
+    expect(lead(db).pending_decision).toBe(true);
+    expect(botMessages(db).every((m) => !String(m.body).includes("{TOTAL}"))).toBe(true);
+  });
+
+  it("still hands over when the second question itself fails", async () => {
+    const db = makeDb();
+    said({ reply: "Total {TOTAL}", status: "awaiting_confirmation", lines: [] });
+    agent.repair = new Error("AI timeout");
+    await send(db, "nak 12 cupcake");
+    expect(lead(db).pending_decision).toBe(true);
+  });
+
+  it("does not ask when there is no order yet", async () => {
+    const db = makeDb();
+    said({ reply: "Boleh kak, nak perisa apa?", status: "collecting", lines: [] });
+    await send(db, "nak order cupcake");
+    expect(agent.repairCalls).toBe(0);
+    expect(lead(db).pending_decision).toBeFalsy();
+  });
+
+  it("does not ask when the order has not changed and its total is already stored", async () => {
+    const db = makeDb();
+    said({ reply: "Total {TOTAL}", status: "awaiting_confirmation", lines: [{ item: "P1", qty: 12 }] });
+    await send(db, "nak 12 cupcake");
+    said({ reply: "Terima kasih! Jumlah {TOTAL}.", status: "confirmed", summary: "12 cupcakes", lines: [] });
+    await new Promise((r) => setTimeout(r, 5));
+    await send(db, "ok betul", "wamid.ok");
+    expect(agent.repairCalls).toBe(0);
+    expect(botMessages(db).at(-1)!.body).toContain("Jumlah RM36");
+  });
+
+  it("never prices a CHANGED order with the stored lines of the old one", async () => {
+    const db = makeDb();
+    said({ reply: "Total {TOTAL}", status: "awaiting_confirmation", lines: [{ item: "P1", qty: 12 }] });
+    await send(db, "nak 12 cupcake");
+    expect(lead(db).order_total_myr).toBe(36);
+
+    // The customer changes the order; the agent sends a bad line and the repair finds nothing.
+    said({ reply: "Total {TOTAL}", status: "awaiting_confirmation", lines: [{ item: "P9", qty: 24 }] });
+    agent.repair = [];
+    await new Promise((r) => setTimeout(r, 5));
+    await send(db, "tukar jadi 24", "wamid.change");
+    expect(botMessages(db).at(-1)!.body).not.toContain("RM36");
+    expect(lead(db).pending_decision).toBe(true);
   });
 });
 

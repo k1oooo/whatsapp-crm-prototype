@@ -7,6 +7,7 @@ import {
   formatMyr,
   hasUnverifiedAmount,
   parseStoredLines,
+  stripItemCodes,
 } from "@/lib/order";
 
 const catalog = buildCatalog([
@@ -129,5 +130,20 @@ describe("parseStoredLines", () => {
   it("returns nothing for a non-array", () => {
     expect(parseStoredLines(null)).toEqual([]);
     expect(parseStoredLines({})).toEqual([]);
+  });
+});
+
+describe("stripItemCodes", () => {
+  it.each([
+    ["12 x Cupcakes [P1], esok 4pm", "12 x Cupcakes, esok 4pm"],
+    ["Cupcakes [P1] (RM3 each)", "Cupcakes (RM3 each)"],
+    ["Cupcakes [P1] dan Delivery [P2].", "Cupcakes dan Delivery."],
+    ["12 [p1] cupcakes", "12 cupcakes"],
+    ["Total RM36 [P12]", "Total RM36"],
+    ["Nothing to strip here", "Nothing to strip here"],
+  ])("%j -> %j", (input, expected) => expect(stripItemCodes(input)).toBe(expected));
+
+  it("leaves other bracketed text alone, so a real unfilled placeholder is still caught", () => {
+    expect(stripItemCodes("Transfer to [BANK NAME]")).toBe("Transfer to [BANK NAME]");
   });
 });
