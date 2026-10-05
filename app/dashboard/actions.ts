@@ -16,6 +16,7 @@ import {
 } from "@/lib/ai";
 import { LEAD_COLUMNS, STAGES, type Lead, type Stage } from "@/lib/leads";
 import type { Msg } from "@/components/chat/chat-thread";
+import type { Json, TablesUpdate } from "@/lib/db-types";
 
 // Row level security makes sure each of these only touches the signed-in owner's data.
 
@@ -171,7 +172,7 @@ export async function saveWhatsAppConnection(
   if (!phoneNumberId)
     return { error: "Add the phone number ID from Meta's WhatsApp Manager." };
 
-  const update: Record<string, string | null> = {
+  const update: TablesUpdate<"businesses"> = {
     wa_phone_number_id: phoneNumberId,
     wa_owner_number: ownerNumber || null,
   };
@@ -351,13 +352,13 @@ async function loadContext(
     .order("created_at", { ascending: false })
     .limit(30);
   const messages: ChatMessage[] = [...(rows ?? [])].reverse().map((r) => ({
-    direction: r.direction,
+    direction: r.direction as ChatMessage["direction"],
     body: r.body ?? "",
     sentAt: r.sent_at,
     source: r.source,
   }));
 
-  return { lead, business, messages };
+  return { lead, business: { ...business, wa_phone_number_id: business.wa_phone_number_id }, messages };
 }
 
 function leadFields(lead: Lead): LeadFields {
@@ -659,7 +660,7 @@ async function restoreDraft(draft: {
   body: string;
   order_status: string | null;
   order_summary: string | null;
-  order_lines?: unknown;
+  order_lines?: Json;
   order_total_myr?: number | null;
 }) {
   const { error } = await createAdminClient().from("draft_replies").insert(draft);
