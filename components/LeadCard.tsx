@@ -13,7 +13,7 @@ export function LeadCard({ lead, coldAfterDays }: { lead: Lead; coldAfterDays: n
     lead.pending_decision || lead.order_status === "paid" || lead.order_status === "confirmed" || cold;
 
   return (
-    <Card className="flex flex-col gap-3 p-3.5">
+    <Card className="flex min-w-0 flex-col gap-3 p-3.5">
       <div className="flex items-start gap-3">
         <ChatAvatar name={displayName(lead)} alert={lead.pending_decision} className="size-9 text-xs" />
         <div className="min-w-0 flex-1">
@@ -29,7 +29,7 @@ export function LeadCard({ lead, coldAfterDays }: { lead: Lead; coldAfterDays: n
       </div>
 
       {hasStatus && (
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex min-w-0 flex-wrap gap-1.5">
           {lead.pending_decision && <NeedsYouBadge reason={lead.human_reason} withPrefix />}
           {lead.order_status === "paid" && <PaidBadge />}
           {lead.order_status === "confirmed" && <WaitingPaymentBadge />}

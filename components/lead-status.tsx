@@ -12,12 +12,21 @@ import { ORDER_LABEL, REASON_LABEL, STAGE_DOT, STAGE_LABEL, type Stage } from "@
 //   Paid                 success   done
 //   Quiet                muted     nothing is happening
 
+// A normal badge is one line that never shrinks. "Needs you: the assistant was not sure" is longer than a
+// pipeline column, so on the board it ran past the edge of the card and was cut off. This one may shrink
+// to the width it is given and wrap onto a second line instead (the later classes win over the Badge
+// defaults of whitespace-nowrap, shrink-0 and rounded-full).
+const WRAPPING_BADGE =
+  "max-w-full shrink items-start whitespace-normal rounded-2xl py-1 text-left leading-snug [&_svg]:mt-px [&_svg]:shrink-0";
+
 export function NeedsYouBadge({ reason, withPrefix = false }: { reason: string | null; withPrefix?: boolean }) {
   const why = reason ? (REASON_LABEL[reason] ?? reason) : null;
   return (
-    <Badge variant="warning">
+    <Badge variant="warning" className={WRAPPING_BADGE}>
       <ReasonIcon reason={reason} />
-      {withPrefix ? `Needs you${why ? `: ${why}` : ""}` : (why ?? "you said you would check")}
+      <span className="min-w-0">
+        {withPrefix ? `Needs you${why ? `: ${why}` : ""}` : (why ?? "you said you would check")}
+      </span>
     </Badge>
   );
 }

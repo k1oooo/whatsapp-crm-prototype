@@ -17,12 +17,12 @@ export function OrderLines({ lead }: { lead: Lead }) {
     <ul className="flex flex-col gap-1.5 text-sm">
       <li className="flex gap-2">
         <ShoppingBag className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
-        <span className={items ? "font-medium" : "text-muted-foreground"}>{items ?? "No order yet"}</span>
+        <span className={`min-w-0 break-words ${items ? "font-medium" : "text-muted-foreground"}`}>{items ?? "No order yet"}</span>
       </li>
       {where && (
         <li className="flex gap-2">
           <CalendarClock className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
-          <span>{where}</span>
+          <span className="min-w-0 break-words">{where}</span>
         </li>
       )}
     </ul>
