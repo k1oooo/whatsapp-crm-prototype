@@ -25,6 +25,9 @@ export type Database = {
           wa_app_secret: string | null;
           wa_verify_token: string | null;
           reply_mode: string;
+          wa_connection_type: string;
+          wa_waba_id: string | null;
+          wa_register_pin: string | null;
         };
         Insert: {
           id?: string;
@@ -44,6 +47,9 @@ export type Database = {
           wa_app_secret?: string | null;
           wa_verify_token?: string | null;
           reply_mode?: string;
+          wa_connection_type?: string;
+          wa_waba_id?: string | null;
+          wa_register_pin?: string | null;
         };
         Update: {
           id?: string;
@@ -63,6 +69,9 @@ export type Database = {
           wa_app_secret?: string | null;
           wa_verify_token?: string | null;
           reply_mode?: string;
+          wa_connection_type?: string;
+          wa_waba_id?: string | null;
+          wa_register_pin?: string | null;
         };
         Relationships: [
           {

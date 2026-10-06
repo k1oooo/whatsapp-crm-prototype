@@ -2,12 +2,21 @@
 
 // Settings: the WhatsApp connection, the assistant's settings and its on/off switch.
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 import type { TablesUpdate } from "@/lib/db-types";
 import { log } from "@/lib/log";
 import { createClient } from "@/lib/supabase/server";
-import { encryptSecret } from "@/lib/secrets";
+import { encryptSecret, readSecret } from "@/lib/secrets";
 import { resolveToken, sendMode } from "@/lib/send";
 import { checkPhoneNumberAccess } from "@/lib/whatsapp-connection";
+import {
+  embeddedSignupConfig,
+  exchangeCodeForToken,
+  generatePin,
+  registerPhoneNumber,
+  subscribeAppToWaba,
+} from "@/lib/embedded-signup";
+import { META_ID } from "@/lib/embedded-signup-client";
 import { type FormState } from "@/app/dashboard/actions/shared";
 
 const NOT_SAVED =
@@ -58,9 +67,22 @@ export async function saveWhatsAppConnection(
 
   const { data: existing } = await supabase
     .from("businesses")
-    .select("wa_phone_number_id, wa_app_secret, wa_access_token, wa_verify_token")
+    .select("wa_phone_number_id, wa_app_secret, wa_access_token, wa_verify_token, wa_connection_type")
     .eq("owner_id", user.id)
     .maybeSingle();
+
+  // A business connected through Embedded Signup holds a token without an app secret of its own: its
+  // number belongs to this deployment's Meta app. Saving only its other details (the owner number)
+  // must not trip the "token needs an app secret" rule below, and typing in credentials of its own
+  // switches it to the bring-your-own-app setup.
+  const manualCredsGiven = appSecret !== undefined || accessToken !== undefined || verifyToken !== undefined;
+  const keepEmbedded =
+    existing?.wa_connection_type === "embedded" && !manualCredsGiven && phoneNumberId === existing.wa_phone_number_id;
+  if (existing?.wa_connection_type === "embedded" && !keepEmbedded) {
+    update.wa_connection_type = "manual";
+    update.wa_waba_id = null;
+    update.wa_register_pin = null;
+  }
 
   // What the business will have saved once this form is applied.
   const after = (key: "wa_app_secret" | "wa_access_token" | "wa_verify_token") =>
@@ -71,7 +93,7 @@ export async function saveWhatsAppConnection(
 
   // A business with its own Meta credentials is verified only against its own app secret. Without
   // it nobody could prove a message really came from Meta, so refuse to save that half-set-up state.
-  if ((hasToken || after("wa_verify_token")) && !after("wa_app_secret")) {
+  if (!keepEmbedded && (hasToken || after("wa_verify_token")) && !after("wa_app_secret")) {
     return {
       error:
         "Add your Meta app secret too. Without it, messages for this number cannot be verified as coming from WhatsApp.",
@@ -118,6 +140,102 @@ export async function saveWhatsAppConnection(
   log.info("settings.saved", { form: "whatsapp_connection", businessId: saved[0].id });
   revalidatePath("/dashboard", "layout");
   return { ok: true };
+}
+
+const EmbeddedSignupInput = z.object({
+  code: z.string().min(10).max(2048),
+  wabaId: z.string().regex(META_ID),
+  phoneNumberId: z.string().regex(META_ID),
+});
+
+/**
+ * Finish Embedded Signup for the signed-in business. The browser hands over what the Meta popup
+ * returned: a one-time code (valid for 30 seconds) and the WhatsApp Business Account and phone
+ * number IDs. Nothing from the browser is trusted on its own: the number is only saved if the
+ * token the code produced can really see it, so one business cannot claim another's number.
+ */
+export async function connectWhatsAppEmbedded(input: {
+  code: string;
+  wabaId: string;
+  phoneNumberId: string;
+}): Promise<FormState> {
+  const parsed = EmbeddedSignupInput.safeParse(input);
+  if (!parsed.success) return { error: "WhatsApp sent back something unexpected. Click Connect and try again." };
+  const { code, wabaId, phoneNumberId } = parsed.data;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Please sign in again." };
+
+  const cfg = embeddedSignupConfig();
+  if (!cfg) return { error: "This server is not set up for WhatsApp sign-in yet." };
+
+  // Everything that can fail without touching WhatsApp runs first, so the 30 second code is not
+  // spent on a request that was never going to be saved.
+  try {
+    encryptSecret("check");
+  } catch (err) {
+    console.error("Could not encrypt WhatsApp credentials", err);
+    return { error: "This server is not set up to store WhatsApp credentials safely yet (WA_SECRETS_KEY is missing)." };
+  }
+  const { data: existing } = await supabase
+    .from("businesses")
+    .select("id, wa_phone_number_id, wa_register_pin")
+    .eq("owner_id", user.id)
+    .maybeSingle();
+  if (!existing) return { error: NOT_SAVED };
+
+  const exchanged = await exchangeCodeForToken(code, cfg);
+  if (!exchanged.ok) return { error: exchanged.error };
+  const token = exchanged.token;
+
+  const access = await checkPhoneNumberAccess(phoneNumberId, token);
+  if (!access.ok) return { error: access.error };
+
+  const subscribed = await subscribeAppToWaba(wabaId, token);
+  if (!subscribed.ok) return { error: subscribed.error };
+
+  // Registering a number that already has a PIN needs that same PIN, so reconnecting the same number
+  // reuses the saved one.
+  const reusedPin =
+    existing.wa_phone_number_id === phoneNumberId ? readSecret(existing.wa_register_pin as string | null, "register PIN") : null;
+  const pin = reusedPin ?? generatePin();
+  const registered = await registerPhoneNumber(phoneNumberId, token, pin);
+  if (!registered.ok) return { error: registered.error };
+
+  const { data: saved, error } = await supabase
+    .from("businesses")
+    .update({
+      wa_phone_number_id: phoneNumberId,
+      wa_waba_id: wabaId,
+      wa_access_token: encryptSecret(token),
+      wa_register_pin: encryptSecret(pin),
+      wa_connection_type: "embedded",
+      // Webhooks for this number are signed with the deployment's app secret, not one of its own.
+      wa_app_secret: null,
+      wa_verify_token: null,
+    })
+    .eq("owner_id", user.id)
+    .select("id");
+
+  if (error) {
+    if (error.code === "23505") return { error: "That phone number is already connected to another business." };
+    log.error("settings.embedded_signup_save_failed", { userId: user.id, phoneNumberId }, error);
+    return { error: "WhatsApp is connected, but saving failed. Click Connect again." };
+  }
+  if (!saved || saved.length === 0) {
+    log.warn("settings.not_saved", { form: "whatsapp_embedded", userId: user.id });
+    return { error: NOT_SAVED };
+  }
+
+  log.info("settings.saved", { form: "whatsapp_embedded", businessId: saved[0].id });
+  revalidatePath("/dashboard", "layout");
+  return {
+    ok: true,
+    notice: "WhatsApp is connected. Add a payment method in WhatsApp Manager before you send messages.",
+  };
 }
 
 /** Save the auto-reply switch and the facts the assistant may use. */

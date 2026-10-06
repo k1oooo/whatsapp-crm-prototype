@@ -12,7 +12,7 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => db }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
-import { saveSettings, saveWhatsAppConnection, toggleAutoReply } from "@/app/dashboard/actions/settings";
+import { connectWhatsAppEmbedded, saveSettings, saveWhatsAppConnection, toggleAutoReply } from "@/app/dashboard/actions/settings";
 import { confirmPayment, sendDraftReply } from "@/app/dashboard/actions/replies";
 
 const noState = {} as never;
@@ -274,5 +274,165 @@ describe("a save that changes nothing is reported, not shown as saved", () => {
     const c = await toggleAutoReply(false);
     expect([a.ok, b.ok, c.ok]).toEqual([true, true, true]);
     expect(db._db.businesses[0]).toMatchObject({ wa_phone_number_id: "TEST_PHONE_NUMBER_ID", tone_notes: "friendly", auto_reply: false });
+  });
+});
+
+describe("connectWhatsAppEmbedded", () => {
+  const input = { code: "one-time-code-123", wabaId: "222222222", phoneNumberId: "999888777666555" };
+  type Call = { url: string; init: RequestInit };
+  let calls: Call[];
+
+  /** A fake Graph API. `overrides` changes the status of one step: exchange, access, subscribe or register. */
+  function graph(overrides: Partial<Record<"exchange" | "access" | "subscribe" | "register", number>> = {}) {
+    calls = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init: RequestInit = {}) => {
+        calls.push({ url, init });
+        const step = url.includes("/oauth/access_token")
+          ? "exchange"
+          : url.includes("/subscribed_apps")
+            ? "subscribe"
+            : url.includes("/register")
+              ? "register"
+              : "access";
+        const status = overrides[step] ?? 200;
+        const body = step === "exchange" ? { access_token: "business-token" } : step === "access" ? { id: input.phoneNumberId } : { success: true };
+        return new Response(JSON.stringify(status === 200 ? body : { error: {} }), { status });
+      }),
+    );
+  }
+  const steps = () => calls.map((c) => (c.url.includes("oauth") ? "exchange" : c.url.includes("subscribed_apps") ? "subscribe" : c.url.includes("/register") ? "register" : "access"));
+  const biz = () => db._db.businesses[0];
+
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_META_APP_ID = "app-1";
+    process.env.NEXT_PUBLIC_META_ES_CONFIG_ID = "cfg-1";
+    process.env.WHATSAPP_APP_SECRET = "deployment-secret";
+    process.env.WA_SECRETS_KEY = Buffer.alloc(32, 7).toString("base64");
+  });
+  afterEach(() => {
+    for (const k of ["NEXT_PUBLIC_META_APP_ID", "NEXT_PUBLIC_META_ES_CONFIG_ID", "WHATSAPP_APP_SECRET", "WA_SECRETS_KEY"]) delete process.env[k];
+  });
+
+  it("connects the number: exchange, check access, subscribe, register, then save", async () => {
+    graph();
+    const res = await connectWhatsAppEmbedded(input);
+    expect(res.error).toBeUndefined();
+    expect(res.ok).toBe(true);
+    expect(steps()).toEqual(["exchange", "access", "subscribe", "register"]);
+    // The later calls use the business token from the exchange.
+    for (const c of calls.slice(1)) expect(c.init.headers).toMatchObject({ authorization: "Bearer business-token" });
+    expect(JSON.parse(String(calls[3].init.body)).pin).toMatch(/^\d{6}$/);
+
+    expect(biz()).toMatchObject({ wa_phone_number_id: input.phoneNumberId, wa_waba_id: input.wabaId, wa_connection_type: "embedded", wa_app_secret: null, wa_verify_token: null });
+    expect(String(biz().wa_access_token)).toMatch(/^enc:v1:/);
+    expect(String(biz().wa_register_pin)).toMatch(/^enc:v1:/);
+    expect(JSON.stringify(biz())).not.toContain("business-token");
+  });
+
+  it("moves a business that brought its own Meta app onto the deployment's app", async () => {
+    db._db.businesses[0].wa_app_secret = "enc-old-secret";
+    db._db.businesses[0].wa_verify_token = "old-verify";
+    graph();
+    await connectWhatsAppEmbedded(input);
+    expect(biz().wa_app_secret).toBeNull();
+    expect(biz().wa_verify_token).toBeNull();
+  });
+
+  it("does not save a number the new token cannot see", async () => {
+    graph({ access: 400 });
+    const res = await connectWhatsAppEmbedded(input);
+    expect(res.error).toBeTruthy();
+    expect(steps()).toEqual(["exchange", "access"]);
+    expect(biz().wa_phone_number_id).toBe("123456789012345");
+    expect(biz().wa_connection_type ?? "manual").toBe("manual");
+  });
+
+  it("stops at the first step that fails and saves nothing", async () => {
+    for (const [fail, ran] of [
+      ["exchange", ["exchange"]],
+      ["subscribe", ["exchange", "access", "subscribe"]],
+      ["register", ["exchange", "access", "subscribe", "register"]],
+    ] as const) {
+      seed();
+      graph({ [fail]: 400 });
+      const res = await connectWhatsAppEmbedded(input);
+      expect(res.error).toBeTruthy();
+      expect(steps()).toEqual(ran);
+      expect(biz().wa_phone_number_id).toBe("123456789012345");
+    }
+  });
+
+  it("rejects malformed input without calling Meta", async () => {
+    graph();
+    expect((await connectWhatsAppEmbedded({ ...input, phoneNumberId: "../evil" })).error).toBeTruthy();
+    expect((await connectWhatsAppEmbedded({ ...input, wabaId: "12 34" })).error).toBeTruthy();
+    expect((await connectWhatsAppEmbedded({ ...input, code: "" })).error).toBeTruthy();
+    expect(calls).toHaveLength(0);
+  });
+
+  it("says so when the deployment is not set up for it, without calling Meta", async () => {
+    delete process.env.NEXT_PUBLIC_META_ES_CONFIG_ID;
+    graph();
+    expect((await connectWhatsAppEmbedded(input)).error).toMatch(/not set up/i);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("does not spend the one-time code when credentials cannot be stored safely", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    delete process.env.WA_SECRETS_KEY;
+    graph();
+    try {
+      expect((await connectWhatsAppEmbedded(input)).error).toMatch(/WA_SECRETS_KEY/);
+      expect(calls).toHaveLength(0);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("reuses the saved PIN when the same number is connected again", async () => {
+    graph();
+    await connectWhatsAppEmbedded(input);
+    const firstPin = JSON.parse(String(calls[3].init.body)).pin;
+    graph();
+    await connectWhatsAppEmbedded(input);
+    expect(JSON.parse(String(calls[3].init.body)).pin).toBe(firstPin);
+  });
+
+  it("reports a number that another business already has", async () => {
+    db._db.businesses.push({ id: "biz-2", owner_id: "owner-2", name: "Other", wa_phone_number_id: input.phoneNumberId });
+    graph();
+    expect((await connectWhatsAppEmbedded(input)).error).toMatch(/already connected/i);
+  });
+});
+
+describe("saving the connect form for a business connected through Embedded Signup", () => {
+  const embeddedBiz = () => {
+    Object.assign(db._db.businesses[0], { wa_connection_type: "embedded", wa_waba_id: "222222222", wa_access_token: "enc-token", wa_register_pin: "enc-pin" });
+  };
+
+  it("lets the owner change other details without asking for an app secret", async () => {
+    embeddedBiz();
+    const res = await saveWhatsAppConnection(noState, form({ wa_phone_number_id: "123456789012345", wa_owner_number: "60123456789" }));
+    expect(res.error).toBeUndefined();
+    expect(db._db.businesses[0]).toMatchObject({ wa_owner_number: "60123456789", wa_connection_type: "embedded", wa_waba_id: "222222222" });
+  });
+
+  it("switches to the bring-your-own-app setup when the owner enters credentials of their own", async () => {
+    embeddedBiz();
+    const res = await saveWhatsAppConnection(
+      noState,
+      form({ wa_phone_number_id: "123456789012345", wa_app_secret: "my-secret", wa_access_token: "my-token" }),
+    );
+    expect(res.error).toBeUndefined();
+    expect(db._db.businesses[0]).toMatchObject({ wa_connection_type: "manual", wa_waba_id: null, wa_register_pin: null });
+  });
+
+  it("still refuses a different number with no credentials to match", async () => {
+    embeddedBiz();
+    const res = await saveWhatsAppConnection(noState, form({ wa_phone_number_id: "555666777888999" }));
+    expect(res.error).toMatch(/app secret/i);
+    expect(db._db.businesses[0].wa_phone_number_id).toBe("123456789012345");
   });
 });

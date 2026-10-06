@@ -20,6 +20,7 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { EmbeddedSignupButton } from "@/components/EmbeddedSignupButton";
 
 function SecretField({
   name,
@@ -79,6 +80,8 @@ export function WhatsAppConnectForm({
   hasAccessToken,
   hasVerifyToken,
   webhookUrl,
+  connectionType,
+  embedded,
 }: {
   phoneNumberId: string;
   ownerNumber: string;
@@ -86,6 +89,9 @@ export function WhatsAppConnectForm({
   hasAccessToken: boolean;
   hasVerifyToken: boolean;
   webhookUrl: string | null;
+  connectionType: "manual" | "embedded";
+  /** Set when this deployment offers the one-click Meta sign-in; null hides it. */
+  embedded: { appId: string; configId: string; version: string } | null;
 }) {
   const [pending, start] = useTransition();
 
@@ -105,7 +111,7 @@ export function WhatsAppConnectForm({
     toast.success("Copied");
   }
 
-  return (
+  const manualForm = (
     <form onSubmit={submit} className="flex flex-col gap-6">
       <Card>
         <CardHeader className="flex flex-col sm:flex-row items-start gap-3 sm:gap-4">
@@ -235,5 +241,45 @@ export function WhatsAppConnectForm({
         </Button>
       </div>
     </form>
+  );
+
+  if (!embedded) return manualForm;
+
+  const connected = connectionType === "embedded" && !!phoneNumberId;
+  return (
+    <div className="flex flex-col gap-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <MessageCircle className="size-4 shrink-0 text-primary md:size-5" aria-hidden />
+            {connected ? "WhatsApp is connected" : "Connect your WhatsApp number"}
+          </CardTitle>
+          <CardDescription className="text-xs sm:text-sm leading-relaxed">
+            {connected
+              ? "Your number is linked through WhatsApp sign-in. Reconnect if you want to switch to a different number."
+              : "A Meta window opens where you sign in to Facebook and choose your WhatsApp Business number. You do not need to copy any tokens."}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <EmbeddedSignupButton
+            appId={embedded.appId}
+            configId={embedded.configId}
+            version={embedded.version}
+            reconnect={connected}
+          />
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Before you can send messages, add a payment method in WhatsApp Manager. A new number also starts
+            with a low daily limit that grows as you use it.
+          </p>
+        </CardContent>
+      </Card>
+
+      <details className="group rounded-xl border bg-card p-4" open={connectionType === "manual" && !!phoneNumberId}>
+        <summary className="cursor-pointer text-sm font-medium">
+          Advanced: use your own Meta app instead
+        </summary>
+        <div className="mt-4">{manualForm}</div>
+      </details>
+    </div>
   );
 }

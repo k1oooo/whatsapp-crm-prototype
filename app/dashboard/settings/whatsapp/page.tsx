@@ -5,6 +5,7 @@ import { PageHeader, PageShell } from "@/components/app/page-shell";
 import { WhatsAppConnectForm } from "@/components/WhatsAppConnectForm";
 import { createClient } from "@/lib/supabase/server";
 import { getOrCreateBusiness } from "@/lib/business";
+import { embeddedSignupConfig } from "@/lib/embedded-signup";
 
 export const metadata: Metadata = { title: "WhatsApp connection" };
 
@@ -21,10 +22,11 @@ export default async function ConnectWhatsAppPage() {
     wa_app_secret: string | null;
     wa_access_token: string | null;
     wa_verify_token: string | null;
+    wa_connection_type: string | null;
   }>(
     supabase,
     user,
-    "wa_phone_number_id, wa_owner_number, wa_app_secret, wa_access_token, wa_verify_token",
+    "wa_phone_number_id, wa_owner_number, wa_app_secret, wa_access_token, wa_verify_token, wa_connection_type",
   );
   if (!business) redirect("/dashboard");
 
@@ -32,6 +34,9 @@ export default async function ConnectWhatsAppPage() {
   const proto = h.get("x-forwarded-proto") ?? "https";
   const host = h.get("host");
   const webhookUrl = host ? `${proto}://${host}/api/whatsapp/webhook` : null;
+
+  // Only the public half goes to the browser: the app secret stays on the server.
+  const es = embeddedSignupConfig();
 
   return (
     <PageShell size="form">
@@ -47,6 +52,8 @@ export default async function ConnectWhatsAppPage() {
         hasAccessToken={!!business.wa_access_token}
         hasVerifyToken={!!business.wa_verify_token}
         webhookUrl={webhookUrl}
+        connectionType={business.wa_connection_type === "embedded" ? "embedded" : "manual"}
+        embedded={es ? { appId: es.appId, configId: es.configId, version: es.version } : null}
       />
     </PageShell>
   );

@@ -35,6 +35,26 @@ beforeEach(() => {
 const bizA = { id: "a", owner_id: "oa", wa_phone_number_id: "1111111", wa_app_secret: SECRET_A, wa_access_token: "ta" };
 const bizB = { id: "b", owner_id: "ob", wa_phone_number_id: "2222222", wa_app_secret: SECRET_B, wa_access_token: "tb" };
 
+describe("a business connected through Embedded Signup", () => {
+  // It holds a token of its own but no app secret: its number belongs to the deployment's Meta app.
+  const embedded = { id: "e", owner_id: "oe", wa_phone_number_id: "3333333", wa_access_token: "te", wa_connection_type: "embedded" };
+
+  it("is verified with the deployment's shared secret", async () => {
+    expect(await check(dbWith([embedded]), payloadFor("3333333"), SHARED)).toBe(true);
+  });
+  it("is not verified with some other secret", async () => {
+    expect(await check(dbWith([embedded]), payloadFor("3333333"), SECRET_A)).toBe(false);
+  });
+  it("still fails closed when the deployment has no shared secret", async () => {
+    delete process.env.WHATSAPP_APP_SECRET;
+    expect(await check(dbWith([embedded]), payloadFor("3333333"), SHARED)).toBe(false);
+  });
+  it("does not let a bring-your-own-app business ride on the shared secret", async () => {
+    const own = { id: "m", owner_id: "om", wa_phone_number_id: "4444444", wa_access_token: "tm", wa_connection_type: "manual" };
+    expect(await check(dbWith([own]), payloadFor("4444444"), SHARED)).toBe(false);
+  });
+});
+
 describe("phoneNumberIdsOf", () => {
   it("collects every distinct id across entries and changes", () => {
     const p: WaWebhookPayload = {

@@ -23,6 +23,7 @@ export function phoneNumberIdsOf(payload: WaWebhookPayload): string[] {
 
 /**
  * The app secret that must have signed a delivery for this phone number:
+ *  - the deployment's shared secret, for a business connected through Embedded Signup;
  *  - the business's own secret, if it set one;
  *  - the deployment's shared secret, only for a business that has NO credentials of its own;
  *  - nothing (so verification fails) for a business that brought its own Meta app credentials but
@@ -32,7 +33,7 @@ export function phoneNumberIdsOf(payload: WaWebhookPayload): string[] {
 async function secretFor(db: SupabaseClient, phoneNumberId: string, shared: string | undefined) {
   const { data: business, error } = await db
     .from("businesses")
-    .select("wa_app_secret, wa_access_token, wa_verify_token")
+    .select("wa_app_secret, wa_access_token, wa_verify_token, wa_connection_type")
     .eq("wa_phone_number_id", phoneNumberId)
     .maybeSingle();
   if (error) {
@@ -40,6 +41,9 @@ async function secretFor(db: SupabaseClient, phoneNumberId: string, shared: stri
     return undefined;
   }
   if (!business) return shared; // not ours: it is ignored later, but the signature must still be genuine
+  // Connected through Embedded Signup: the number lives under this deployment's own Meta app, so Meta
+  // signs with the deployment's secret even though the business holds a token of its own.
+  if (business.wa_connection_type === "embedded") return shared;
   // Stored encrypted. If it is there but cannot be read, fail closed rather than use the shared secret.
   if (business.wa_app_secret) return readSecret(business.wa_app_secret as string, "app secret") ?? undefined;
   const hasOwnCredentials = !!(business.wa_access_token || business.wa_verify_token);
