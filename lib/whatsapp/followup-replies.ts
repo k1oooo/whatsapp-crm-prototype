@@ -2,6 +2,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { runFeedbackAgent, type ChatMessage } from "@/lib/ai";
 import { CONSENT_ASK, readSettings } from "@/lib/follow-up-settings";
+import { overDailyLimit } from "@/lib/ai-guard";
 import { isSubscriptionActive } from "@/lib/subscriptions";
 import { type BusinessInfo } from "@/lib/whatsapp/types";
 import { isOptOut, isConsentYes } from "@/lib/whatsapp/replies";
@@ -45,6 +46,7 @@ export async function handleFollowUpReply(db: SupabaseClient, business: Business
   // Everything below is the assistant talking (and, for feedback, an AI call), so it needs the
   // assistant on AND paid for. handleLead then flags the lead for billing if that is why.
   if (!business.auto_reply || !isSubscriptionActive(business.subscription)) return false;
+  if (await overDailyLimit(db, business.id)) return false;
 
   // "YA" to the offer that came with the payment confirmation. It only counts as consent when the
   // last thing we sent was that offer: a "ya" answering an order summary later must go to the order

@@ -5,10 +5,11 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import type { TablesUpdate } from "@/lib/db-types";
 import { log } from "@/lib/log";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { encryptSecret, readSecret } from "@/lib/secrets";
 import { resolveToken, sendMode } from "@/lib/send";
-import { checkPhoneNumberAccess } from "@/lib/whatsapp-connection";
+import { checkPhoneNumberAccess, isSharedTokenOwner } from "@/lib/whatsapp-connection";
 import {
   embeddedSignupConfig,
   exchangeCodeForToken,
@@ -101,8 +102,18 @@ export async function saveWhatsAppConnection(
   }
 
   // Prove the owner can really use this number. Skipped in test mode, where there is no live token.
-  const tokenToCheck = resolveToken(effectiveToken);
+  // The proof must come from a token the owner brought. The deployment's shared token reaches the
+  // operator's own numbers, so it only counts for the operator's own accounts; for anyone else it
+  // would "prove" ownership of a number that is not theirs.
   const changed = phoneNumberId !== existing?.wa_phone_number_id || accessToken !== undefined;
+  const mayUseSharedToken = isSharedTokenOwner(user.id);
+  if (changed && !effectiveToken && !mayUseSharedToken && sendMode(null) === "live") {
+    return {
+      error:
+        "Add your own WhatsApp access token to connect this number, or use Connect with WhatsApp. It cannot be verified without one.",
+    };
+  }
+  const tokenToCheck = effectiveToken || mayUseSharedToken ? resolveToken(effectiveToken) : undefined;
   if (changed && tokenToCheck && sendMode(effectiveToken) === "live") {
     const check = await checkPhoneNumberAccess(phoneNumberId, tokenToCheck);
     if (!check.ok) return { error: check.error };
@@ -111,7 +122,9 @@ export async function saveWhatsAppConnection(
   // .select() makes the update report the rows it changed. Without it, an update that matches nothing
   // (a different signed-in account than the business owner, say) succeeds silently and the form says
   // "Saved" while the database is untouched.
-  const { data: saved, error } = await supabase
+  // The connection columns are closed to the browser session (migration 0018), so the server writes
+  // them. The signed-in user was verified above and the update is pinned to their own business.
+  const { data: saved, error } = await createAdminClient()
     .from("businesses")
     .update(update)
     .eq("owner_id", user.id)
@@ -194,6 +207,14 @@ export async function connectWhatsAppEmbedded(input: {
   const access = await checkPhoneNumberAccess(phoneNumberId, token);
   if (!access.ok) return { error: access.error };
 
+  // Refuse a number another business already holds before subscribing this WABA to the deployment's
+  // app, so a failed save never leaves a WABA delivering webhooks to someone else's row.
+  const admin = createAdminClient();
+  const { data: holders } = await admin.from("businesses").select("owner_id").eq("wa_phone_number_id", phoneNumberId);
+  if ((holders ?? []).some((h) => h.owner_id !== user.id)) {
+    return { error: "That phone number is already connected to another business." };
+  }
+
   const subscribed = await subscribeAppToWaba(wabaId, token);
   if (!subscribed.ok) return { error: subscribed.error };
 
@@ -205,7 +226,7 @@ export async function connectWhatsAppEmbedded(input: {
   const registered = await registerPhoneNumber(phoneNumberId, token, pin);
   if (!registered.ok) return { error: registered.error };
 
-  const { data: saved, error } = await supabase
+  const { data: saved, error } = await admin
     .from("businesses")
     .update({
       wa_phone_number_id: phoneNumberId,

@@ -3,6 +3,21 @@
 export type AccessCheck = { ok: true } | { ok: false; error: string };
 
 /**
+ * Whether this signed-in user may claim a number using the deployment's shared WHATSAPP_ACCESS_TOKEN.
+ * That token reaches the operator's own numbers, so a self-serve tenant who typed one of those IDs
+ * would pass the check below. Only the user ids listed in WHATSAPP_SHARED_TOKEN_OWNER_IDS (comma
+ * separated Supabase auth user ids, the operator's own accounts) may rely on it. Everyone else has
+ * to bring a token of their own, or connect through Embedded Signup.
+ */
+export function isSharedTokenOwner(userId: string): boolean {
+  const allowed = (process.env.WHATSAPP_SHARED_TOKEN_OWNER_IDS ?? "")
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean);
+  return allowed.includes(userId);
+}
+
+/**
  * Ask the Graph API whether this access token can see this phone number ID. A token only reaches
  * numbers that belong to its own WhatsApp Business Account, so a 200 for the ID proves the owner is
  * allowed to use it. Without this check anyone could save a number they do not own, take the

@@ -201,6 +201,7 @@ export function createFakeSupabase(seed: FakeDb = {}, options: FakeOptions = {})
     let mode: "select" | "insert" | "update" | "delete" | null = null;
     let payload: Row | undefined;
     let selectCols: string | undefined;
+    let countHead = false;
     const filters: FilterOp[] = [];
     const orders: { col: string; ascending: boolean }[] = [];
     let limitN: number | undefined;
@@ -261,6 +262,7 @@ export function createFakeSupabase(seed: FakeDb = {}, options: FakeOptions = {})
           return 0;
         });
       }
+      if (countHead) return { data: null, count: result.length, error: null };
       if (limitN != null) result = result.slice(0, limitN);
 
       if (kind === "single") {
@@ -274,9 +276,10 @@ export function createFakeSupabase(seed: FakeDb = {}, options: FakeOptions = {})
     }
 
     const builder = {
-      select(cols?: string) {
+      select(cols?: string, opts?: { count?: string; head?: boolean }) {
         if (!mode) mode = "select"; // after update()/delete() this only sets which columns come back
         selectCols = cols;
+        if (opts?.count && opts.head) countHead = true;
         return builder;
       },
       insert(obj: Row) {

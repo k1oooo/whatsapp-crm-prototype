@@ -13,7 +13,7 @@ vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => db }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 import { connectWhatsAppEmbedded, saveSettings, saveWhatsAppConnection, toggleAutoReply } from "@/app/dashboard/actions/settings";
-import { confirmPayment, sendDraftReply } from "@/app/dashboard/actions/replies";
+import { answerHandoff, confirmPayment, sendDraftReply } from "@/app/dashboard/actions/replies";
 
 const noState = {} as never;
 const form = (fields: Record<string, string> = {}) => {
@@ -40,6 +40,7 @@ function seed(extra: FakeDb = {}) {
         follow_up_consent: "unknown",
       },
     ],
+    subscriptions: [{ business_id: "biz-1", status: "active", trial_ends_at: null, current_period_end: null }],
     ...extra,
   });
 }
@@ -54,6 +55,54 @@ beforeEach(() => {
   seed();
 });
 afterEach(() => vi.unstubAllGlobals());
+
+describe("AI cost guards on owner actions", () => {
+  const expired = { business_id: "biz-1", status: "trialing", trial_ends_at: "2020-01-01T00:00:00Z", current_period_end: null };
+
+  it("REGRESSION: confirmPayment does not call the AI or message anyone when the subscription is not active", async () => {
+    seed({ subscriptions: [expired] });
+    const res = await confirmPayment("lead-1", noState, form());
+    expect(res.error).toMatch(/trial has ended/i);
+    expect(db._db.leads[0].order_status).toBe("confirmed");
+    expect(botMessages()).toHaveLength(0);
+  });
+
+  it("REGRESSION: answerHandoff is refused with no subscription row at all", async () => {
+    seed({ subscriptions: [] });
+    const res = await answerHandoff("lead-1", noState, form({ note: "yes, 10% off" }));
+    expect(res.error).toMatch(/subscribe/i);
+    expect(botMessages()).toHaveLength(0);
+  });
+
+  it("stops both once the business has used its daily allowance", async () => {
+    process.env.AI_DAILY_MESSAGE_LIMIT = "2";
+    try {
+      const now = new Date().toISOString();
+      seed({
+        messages: [
+          { business_id: "biz-1", lead_id: "lead-1", direction: "in", body: "a", created_at: now },
+          { business_id: "biz-1", lead_id: "lead-1", direction: "in", body: "b", created_at: now },
+        ],
+      });
+      expect((await answerHandoff("lead-1", noState, form({ note: "ok" }))).error).toMatch(/daily limit/i);
+      expect((await confirmPayment("lead-1", noState, form())).error).toMatch(/daily limit/i);
+      expect(botMessages()).toHaveLength(0);
+    } finally {
+      delete process.env.AI_DAILY_MESSAGE_LIMIT;
+    }
+  });
+
+  it("does not count messages older than a day", async () => {
+    process.env.AI_DAILY_MESSAGE_LIMIT = "1";
+    try {
+      const old = new Date(Date.now() - 2 * 86_400_000).toISOString();
+      seed({ messages: [{ business_id: "biz-1", lead_id: "lead-1", direction: "in", body: "old", created_at: old }] });
+      expect((await confirmPayment("lead-1", noState, form())).error).toBeUndefined();
+    } finally {
+      delete process.env.AI_DAILY_MESSAGE_LIMIT;
+    }
+  });
+});
 
 describe("confirmPayment", () => {
   it("marks the order paid and tells the customer once", async () => {
@@ -194,12 +243,27 @@ describe("saveWhatsAppConnection", () => {
     expect(db._db.businesses[0].wa_access_token).toBeNull();
   });
 
-  it("verifies against the shared token when the business brings none", async () => {
+  it("REGRESSION: a tenant with no token of their own cannot claim a number through the shared token", async () => {
     live();
     const f = vi.fn(async () => new Response(JSON.stringify({ id: "999888777666555" }), { status: 200 }));
     vi.stubGlobal("fetch", f);
-    await saveWhatsAppConnection(noState, form({ wa_phone_number_id: "999888777666555" }));
-    expect((f.mock.calls[0] as unknown as [string, RequestInit])[1].headers).toMatchObject({ authorization: "Bearer shared-token" });
+    const res = await saveWhatsAppConnection(noState, form({ wa_phone_number_id: "999888777666555" }));
+    expect(res.error).toMatch(/own WhatsApp access token/i);
+    expect(f).not.toHaveBeenCalled();
+    expect(db._db.businesses[0].wa_phone_number_id).toBe("123456789012345");
+  });
+
+  it("verifies against the shared token only for an operator account", async () => {
+    live();
+    process.env.WHATSAPP_SHARED_TOKEN_OWNER_IDS = "someone-else, owner-1";
+    const f = vi.fn(async () => new Response(JSON.stringify({ id: "999888777666555" }), { status: 200 }));
+    vi.stubGlobal("fetch", f);
+    try {
+      await saveWhatsAppConnection(noState, form({ wa_phone_number_id: "999888777666555" }));
+      expect((f.mock.calls[0] as unknown as [string, RequestInit])[1].headers).toMatchObject({ authorization: "Bearer shared-token" });
+    } finally {
+      delete process.env.WHATSAPP_SHARED_TOKEN_OWNER_IDS;
+    }
   });
 
   it("skips the WhatsApp check in test mode", async () => {
@@ -404,6 +468,8 @@ describe("connectWhatsAppEmbedded", () => {
     db._db.businesses.push({ id: "biz-2", owner_id: "owner-2", name: "Other", wa_phone_number_id: input.phoneNumberId });
     graph();
     expect((await connectWhatsAppEmbedded(input)).error).toMatch(/already connected/i);
+    // It stops before subscribing the WABA, so a refused claim never leaves webhooks flowing to the other row.
+    expect(steps()).toEqual(["exchange", "access"]);
   });
 });
 

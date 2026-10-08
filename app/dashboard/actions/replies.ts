@@ -8,6 +8,7 @@ import { createClient } from "@/lib/supabase/server";
 import { CONSENT_ASK, readSettings } from "@/lib/follow-up-settings";
 import { scheduleAfterPayment } from "@/lib/follow-ups";
 import { draftFollowUp, writeConfirmation } from "@/lib/ai";
+import { ownerAiBlock } from "@/lib/ai-guard";
 import { type FormState, loadContext, leadFields, deliver } from "@/app/dashboard/actions/shared";
 
 /** One click: the owner has received the payment. The assistant confirms the order to the customer. */
@@ -24,6 +25,10 @@ export async function confirmPayment(
   if (typeof ctx === "string") return { error: ctx };
   // Cheap early exit for the common case. The conditional update below is what actually guards the race.
   if (ctx.lead.order_status === "paid") return { error: "This order is already marked as paid." };
+
+  // The confirmation is written by the AI, so it needs an active subscription and today's allowance.
+  const blocked = await ownerAiBlock(supabase, ctx.lead.business_id);
+  if (blocked) return { error: blocked };
 
   // After-sale follow-up settings. Missing columns (migration 0007) just mean follow-ups are off.
   const { data: biz } = await supabase
@@ -119,6 +124,9 @@ export async function answerHandoff(
   const supabase = await createClient();
   const ctx = await loadContext(supabase, leadId);
   if (typeof ctx === "string") return { error: ctx };
+
+  const blocked = await ownerAiBlock(supabase, ctx.lead.business_id);
+  if (blocked) return { error: blocked };
 
   let body: string;
   try {

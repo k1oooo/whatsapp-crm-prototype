@@ -5,6 +5,7 @@ import { type BusinessInfo, type WaWebhookPayload } from "@/lib/whatsapp/types";
 import { refreshLead } from "@/lib/whatsapp/lead";
 import { autoReply } from "@/lib/whatsapp/agent";
 import { handleFollowUpReply } from "@/lib/whatsapp/followup-replies";
+import { flagDailyLimit, overDailyLimit } from "@/lib/ai-guard";
 import { blockedByBilling } from "@/lib/whatsapp/billing-gate";
 import { ingestPayload, warnQueueMissing } from "@/lib/whatsapp/ingest";
 
@@ -16,6 +17,12 @@ export async function handleLead(db: SupabaseClient, business: BusinessInfo, lea
 
   // Every AI call below costs money, so none of it runs while the subscription is not active.
   if (await blockedByBilling(db, business, leadId)) return;
+
+  // A daily cap per business, so one account cannot run up the AI bill.
+  if (await overDailyLimit(db, business.id)) {
+    if (business.auto_reply) await flagDailyLimit(db, leadId);
+    return;
+  }
 
   const { data: lead } = await db
     .from("leads")
