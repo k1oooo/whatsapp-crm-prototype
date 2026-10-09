@@ -1,5 +1,12 @@
 import crypto from "node:crypto";
 
+/** Compare two secrets without leaking, through timing, how much of them matched. */
+export function safeEqual(given: string, wanted: string): boolean {
+  const a = Buffer.from(given);
+  const b = Buffer.from(wanted);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 /** True when the request carries the CRON_SECRET (Vercel Cron sends it as a bearer token). */
 export function isCronAuthorized(req: Request): boolean {
   const secret = process.env.CRON_SECRET;

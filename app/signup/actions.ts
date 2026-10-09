@@ -2,6 +2,7 @@
 
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { passwordProblem } from "@/lib/password-policy";
 import { createClient } from "@/lib/supabase/server";
 
 export async function signUp(formData: FormData) {
@@ -12,6 +13,9 @@ export async function signUp(formData: FormData) {
   if (!businessName) {
     redirect("/signup?error=" + encodeURIComponent("Add your business name."));
   }
+
+  const problem = passwordProblem(password);
+  if (problem) redirect("/signup?error=" + encodeURIComponent(problem));
 
   const origin = (await headers()).get("origin") ?? "";
   const supabase = await createClient();
@@ -27,7 +31,13 @@ export async function signUp(formData: FormData) {
   });
 
   if (error) {
-    redirect("/signup?error=" + encodeURIComponent(error.message));
+    // Do not echo Supabase's wording: "already registered" would tell a stranger which emails have accounts.
+    console.error("Sign up failed", error.code ?? error.message);
+    const message =
+      error.code === "weak_password" || error.status === 422
+        ? "Could not create the account. Check your email and use a stronger password."
+        : "Could not create the account. If you already have one, sign in or reset your password.";
+    redirect("/signup?error=" + encodeURIComponent(message));
   }
 
   // Email confirmation is off for this Supabase project, so we already have a session.

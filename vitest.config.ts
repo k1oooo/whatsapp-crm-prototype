@@ -7,6 +7,8 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "."),
+      // The real package throws unless Next's server build loads it; tests run in plain Node.
+      "server-only": path.resolve(__dirname, "test/server-only-stub.ts"),
     },
   },
   test: {

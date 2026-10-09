@@ -38,7 +38,17 @@ export async function POST(req: NextRequest) {
       case "customer.subscription.created":
       case "customer.subscription.updated":
       case "customer.subscription.deleted": {
-        await syncSubscription(admin, event.data.object as Stripe.Subscription);
+        // Stripe does not promise delivery order, so this payload can be older than what it holds now (a late
+        // "updated" must not bring back a subscription that has since ended). Ask Stripe for the current state.
+        // A subscription that no longer exists falls back to the payload, which is the "deleted" case.
+        const fromEvent = event.data.object as Stripe.Subscription;
+        let current = fromEvent;
+        try {
+          current = await stripe().subscriptions.retrieve(fromEvent.id);
+        } catch (err) {
+          if ((err as { code?: string }).code !== "resource_missing") throw err;
+        }
+        await syncSubscription(admin, current);
         break;
       }
       default:

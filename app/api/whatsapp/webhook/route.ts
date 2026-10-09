@@ -1,3 +1,4 @@
+import { safeEqual } from "@/lib/cron-auth";
 import { after, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { verifyWebhook } from "@/lib/webhook-auth";
@@ -18,7 +19,7 @@ export async function GET(req: NextRequest) {
     return new Response("Forbidden", { status: 403 });
   }
 
-  const sharedMatch = !!process.env.WHATSAPP_VERIFY_TOKEN && token === process.env.WHATSAPP_VERIFY_TOKEN;
+  const sharedMatch = !!process.env.WHATSAPP_VERIFY_TOKEN && safeEqual(token, process.env.WHATSAPP_VERIFY_TOKEN);
 
   let businessMatch = false;
   if (!sharedMatch) {

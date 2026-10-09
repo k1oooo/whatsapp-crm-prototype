@@ -1,4 +1,6 @@
 // Service role client. Server only (webhook, cron jobs). Bypasses row level security.
+// Importing this from a client component fails the build, so the service role key cannot reach the browser bundle.
+import "server-only";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/db-types";
 

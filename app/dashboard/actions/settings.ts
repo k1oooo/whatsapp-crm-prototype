@@ -292,7 +292,8 @@ export async function saveSettings(
     .select("id");
   if (error) {
     console.error("saveSettings failed", error.code, error.message);
-    return { error: `Could not save: ${error.message}` };
+    console.error("Could not save settings", error.message);
+    return { error: "Could not save your changes. Try again." };
   }
   if (!saved || saved.length === 0) {
     log.warn("settings.not_saved", { form: "ai_settings", userId: user.id });
@@ -318,7 +319,8 @@ export async function toggleAutoReply(next: boolean): Promise<FormState> {
     .select("id");
   if (error) {
     console.error("toggleAutoReply failed", error.code, error.message);
-    return { error: `Could not change the assistant: ${error.message}` };
+    console.error("Could not change the assistant", error.message);
+    return { error: "Could not change the assistant. Try again." };
   }
   if (!saved || saved.length === 0) {
     log.warn("settings.not_saved", { form: "assistant_toggle", userId: user.id });
